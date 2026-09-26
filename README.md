@@ -39,7 +39,7 @@ TCP connections using a Gunbot listening port are excluded as likely inbound. Th
 
 ## Install on the VPS
 
-The development/test host was macOS. Automated logic tests pass there; live Ubuntu/systemd integration and real Telegram delivery still require the acceptance checks below. Do not regard this package as field-validated before those checks.
+Sentinel has been tested on Ubuntu and confirmed working by the project owner. The public-source review also passed all 74 automated logic tests on macOS. The acceptance checks below help verify each new deployment against its own resolver, process and Telegram configuration.
 
 Prerequisites: Ubuntu 24.04, systemd running, Python 3, journalctl, resolvectl, systemd-analyze, useradd, sha256sum, and an already-active systemd-resolved. The installer checks these and installs no packages. It does not enable a resolver or adjust networking.
 
@@ -233,11 +233,11 @@ sudo env SENTINEL_TEST_DISPOSABLE=yes ./test_linux.sh
 
 This refuses an existing Sentinel install. It uses a deliberately invalid token, verifies the actual main UID and zero effective/permitted capabilities, tests local readiness during Telegram failure, suspends only Sentinel's main process to exercise watchdog recovery, then uninstalls. It does not stop Gunbot, change networking, or create a container stack. A failed test may leave Sentinel installed for diagnosis; run its uninstaller when finished.
 
-This test has been supplied but **has not run in the current macOS workspace**. Real Telegram delivery, actual Gunbot DNS coverage and host resource consumption also require acceptance testing on your VPS. The code changes do not constitute government certification.
+The project owner has confirmed successful testing on Ubuntu. This specific disposable-VM script was not run during the macOS public-source review, and its execution is not implied by that confirmation. Check real Telegram delivery, actual Gunbot DNS coverage and host resource consumption on each new deployment.
 
 ### Additional staging acceptance for 0.3.0
 
-On a disposable Ubuntu VM, approve a reviewed baseline, start a temporary listener and confirm drift, then remove it. Change a harmless staged cron definition and verify its hash alert without contents. Exercise `/maintenance 1m` and expiry with a dummy monitored process, and `/selftest` with working Telegram credentials. Hold a curl/wget process long enough to span a sample and confirm no URL appears in messages. Verify a staged dpkg action, configured volume/inode thresholds, and a temporary reboot-required marker. Restore all staging fixtures. Do not create an actual OOM, alter production UFW rules or reboot production to test these alerts. Live Linux/systemd and Telegram verification remains required.
+On a disposable Ubuntu VM, approve a reviewed baseline, start a temporary listener and confirm drift, then remove it. Change a harmless staged cron definition and verify its hash alert without contents. Exercise `/maintenance 1m` and expiry with a dummy monitored process, and `/selftest` with working Telegram credentials. Hold a curl/wget process long enough to span a sample and confirm no URL appears in messages. Verify a staged dpkg action, configured volume/inode thresholds, and a temporary reboot-required marker. Restore all staging fixtures. Do not create an actual OOM, alter production UFW rules or reboot production to test these alerts. Use these checks when validating a new deployment or changes to monitoring behaviour.
 
 ### Instance counting (0.3.1)
 
@@ -289,7 +289,7 @@ Version 0.3.9 automatically queries WHOIS for public outbound-IP alerts and plac
 
 The lookup runs in a single background thread of the unprivileged Telegram process. Other alerts and polling continue while an IP alert waits up to four seconds for enrichment. Results are cached for 24 hours (failures five minutes), capped at 256 addresses; pending work is bounded to 16 and new requests to one per two seconds. Socket operations have timeouts and responses are capped at 64 KiB. Timeout/capacity/registry failures are shown directly in the alert, which is sent without enrichment. No WHOIS lookup is made for non-public/special-use addresses.
 
-Automatic lookup discloses the queried destination IP to IANA and the responsible regional registry. It does not transmit the Telegram token, server label, PID or Gunbot configuration. Registry DNS lookups may themselves be observed by Sentinel; registry domains are not silently added to known-domain rules. Telegram rendering and behavior within the installed service require live verification.
+Automatic lookup discloses the queried destination IP to IANA and the responsible regional registry. It does not transmit the Telegram token, server label, PID or Gunbot configuration. Registry DNS lookups may themselves be observed by Sentinel; registry domains are not silently added to known-domain rules. Check Telegram rendering and installed-service behaviour after upgrades.
 
 Version 0.3.10 combines the network alert heading into NETWORK OBSERVATION and removes the duplicate NETWORK body label, including in legacy queued alerts.
 

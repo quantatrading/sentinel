@@ -2,6 +2,15 @@
 
 > Historical review: the decision, test counts, line references and findings below describe the initial implementation, not the current release. See the [remediation status](#020-remediation-status) and [current publication review](docs/publication-review.md). Original findings are retained for transparency; they are not all unresolved defects.
 
+## Current validation update
+
+On 26 September 2026, the project owner confirmed that Sentinel has been tested
+on Ubuntu and is working. Earlier statements below about outstanding Linux
+validation describe the evidence available during the historical review. The
+confirmation does not specify which individual integration or failure-path
+checks were run. See the [publication review](docs/publication-review.md) for
+the distinction between deployment confirmation and local automated checks.
+
 ## Decision
 
 Sentinel is a useful foundation for a supplementary VPS watchdog. It is **not currently supported by sufficient evidence for a government-assured deployment**, and two reproduced alert-delivery defects should be fixed before depending on it for critical notices. It is not an endpoint protection system, a complete audit system, or an implementation of an entire security standard.

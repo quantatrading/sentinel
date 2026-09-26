@@ -29,10 +29,12 @@ host. Shell syntax, example JSON configuration, Python compilation and the
 release manifest are checked locally. Tests use synthetic/mocked observations;
 no real Telegram messages or WHOIS queries were sent for this review.
 
-Ubuntu service integration, real Telegram delivery, actual resolver coverage and
-resource/flood behaviour were not exercised in this review. The supplied
-disposable-VM test and README acceptance procedure remain required before relying
-on a deployment. CI results are separate from these local checks.
+The project owner confirmed on 26 September 2026 that Sentinel has been tested
+on Ubuntu and is working. This deployment confirmation is separate from the
+checks performed during the macOS public-source review. No detailed Ubuntu test
+log or checklist was supplied, so it does not establish that every disposable-VM,
+privilege, flood or failure-path test was performed. Use the README acceptance
+procedure for new deployments. CI results are separate from these local checks.
 
 This is a source-publication review, not a penetration test or a guarantee that
 all vulnerabilities or sensitive information have been identified. In particular,
