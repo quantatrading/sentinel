@@ -32,3 +32,6 @@ htmlcov/
 .vscode/
 .codex/
 .agents/
+
+# Generated release packages
+dist/

@@ -1,0 +1,49 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Test
+        run: |
+          python3 -m unittest discover -v
+          bash -n install.sh uninstall.sh test_linux.sh
+          python3 -I sentinel.py --config sentinel.json.example --check-config
+      - name: Build verified package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 release.py --build --tag "$RELEASE_TAG"
+      - name: Verify extracted installation package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum --check --strict sentinel-*.tar.gz.sha256
+          tar -xzf "sentinel-${RELEASE_TAG#v}.tar.gz"
+          cd "sentinel-${RELEASE_TAG#v}"
+          sha256sum --check --strict SHA256SUMS
+          test -x install.sh
+          test -x uninstall.sh
+          python3 -I sentinel.py --config sentinel.json.example --check-config
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            "dist/sentinel-${RELEASE_TAG#v}.tar.gz" \
+            "dist/sentinel-${RELEASE_TAG#v}.tar.gz.sha256" \
+            --verify-tag --title "Sentinel $RELEASE_TAG" \
+            --notes-file "docs/releases/${RELEASE_TAG}.md"

@@ -4,15 +4,23 @@ A small, passive watchdog for Ubuntu 24.04 Gunbot VPS hosts. Python standard lib
 
 Start with [installation](#install-on-the-vps), then read the [configuration reference](docs/configuration.md) and [operations and troubleshooting guide](docs/operations.md). Developers should read [CONTRIBUTING.md](CONTRIBUTING.md). See [SECURITY.md](SECURITY.md) for privacy and reporting guidance, and [the publication review](docs/publication-review.md) for review scope and validation.
 
-Download the complete repository on your Ubuntu server before installation:
+Download `sentinel-0.3.13.tar.gz` and its `.sha256` file from
+[GitHub Releases](https://github.com/quantatrading/sentinel/releases/latest).
+Place both in the same directory on your Ubuntu server:
 
 ```bash
-git clone https://github.com/quantatrading/sentinel.git
-cd sentinel
+sha256sum --check --strict sentinel-0.3.13.tar.gz.sha256
+tar -xzf sentinel-0.3.13.tar.gz
+cd sentinel-0.3.13
 sha256sum --check --strict SHA256SUMS
+sudo ./install.sh
 ```
 
-If Git is unavailable, download and extract the repository ZIP from GitHub, then open a terminal in the extracted directory. Review the source before running the root installer. Checksums detect changed files; they do not authenticate the publisher.
+Read the [installation prerequisites](#install-on-the-vps) before running the
+installer. Alternatively, clone the repository with
+`git clone https://github.com/quantatrading/sentinel.git` and run the installer
+from that directory. Review the source before running it as root. Checksums
+detect changed files; they do not authenticate the publisher.
 
 The Python runtime uses only the standard library. Installation and monitoring require Ubuntu 24.04 with systemd; macOS can run the logic tests. This repository currently has no open-source license; publication does not select a redistribution license.
 

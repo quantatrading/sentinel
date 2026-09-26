@@ -17,3 +17,5 @@ jobs:
         run: python3 -I sentinel.py --config sentinel.json.example --check-config
       - name: Release integrity
         run: sha256sum --check --strict SHA256SUMS
+      - name: Build installation package
+        run: python3 release.py --build

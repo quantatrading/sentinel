@@ -46,6 +46,42 @@ merely to test Python logic.
 5. Run `python3 release.py`, then verify `SHA256SUMS` with `sha256sum --check --strict SHA256SUMS` on Linux or `shasum -a 256 -c SHA256SUMS` on macOS.
 6. Review `git diff --check`, the diff and staged file list before publishing.
 
+## Build and publish
+
+Create a local installation package after regenerating and reviewing the manifest:
+
+```bash
+python3 release.py --check
+python3 release.py --build --tag v0.3.13
+```
+
+The output is `dist/sentinel-0.3.13.tar.gz` and its `.sha256` file. Only files in
+`FILES` plus `SHA256SUMS` enter the archive; generated caches and local files are
+excluded. Archive ownership, timestamps and modes are normalized; installers
+remain executable. The build fails if a file changed since manifest generation
+or the tag differs from `VERSION` in `sentinel.py`.
+
+To publish a new version:
+
+1. Update the application version and user-facing version references.
+2. Add `docs/releases/vVERSION.md` with release notes and add that file to `FILES`.
+3. Run tests, regenerate `SHA256SUMS`, commit and push the reviewed changes.
+4. Create and push the matching tag, for example:
+
+   ```bash
+   git tag -a v0.3.13 -m "Sentinel 0.3.13"
+   git push origin v0.3.13
+   ```
+
+The **Release** GitHub Actions workflow runs on `v*` tags. It runs tests on
+Ubuntu, builds the archive, verifies the extracted manifest and installer modes,
+then publishes a GitHub release with the archive, checksum and prepared notes.
+It uses the repository's built-in `GITHUB_TOKEN`; no personal token is required.
+Release creation requires Actions to have write access to repository contents.
+Inspect the workflow result before announcing a release. Do not move an already
+published version tag; publish a new version for fixes. Release notes are required
+for each tag. No privileged installation or live Telegram testing runs in CI.
+
 The manifest is integrity evidence, not a signature. Publish its digest through
 an independently trusted channel when distributing a release. GitHub CI checks
 logic, shell syntax, example configuration and manifest consistency; it does not
