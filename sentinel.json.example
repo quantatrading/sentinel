@@ -1,0 +1,24 @@
+{
+  "server_name": "EXAMPLE-SERVER",
+  "gunbot_process": "gunthy-linux",
+  "known_domains": [
+    "api.telegram.org"
+  ],
+  "known_domain_suffixes": [],
+  "known_management_ips": [],
+  "thresholds": {
+    "disk_percent": 90,
+    "memory_percent": 90,
+    "load_per_cpu": 2,
+    "ssh_failures_10m": 30,
+    "inode_percent": 90,
+    "restart_starts_10m": 5
+  },
+  "alert_cooldown_minutes": 60,
+  "check_seconds": 30,
+  "retention_days": 7,
+  "expected_gunbot_instances": 1,
+  "monitored_paths": [
+    "/"
+  ]
+}

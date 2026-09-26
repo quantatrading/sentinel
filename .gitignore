@@ -1,0 +1,34 @@
+# Local secrets, deployment configuration, observations and backups
+.env
+.env.*
+*.env
+!.env.example
+!*.env.example
+sentinel.json
+baseline.json
+health.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+*.bak
+*.backup
+*.tar
+*.tar.gz
+*.zip
+.sentinel-*
+.lock
+# Generated Python and local editor/agent metadata
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+.codex/
+.agents/

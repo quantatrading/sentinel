@@ -1,0 +1,63 @@
+[Unit]
+Description=Sentinel passive Gunbot security watchdog
+# Start local monitoring without waiting for external connectivity.
+# Telegram and native collectors retry independently when unavailable.
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=90
+TimeoutStartSec=90
+KillMode=control-group
+LimitCORE=0
+# System services default to root. Do not set User=root explicitly: systemd 255
+# can discard CAP_SETUID during seccomp setup, preventing our later UID drop.
+Group=sentinel-watchdog
+EnvironmentFile=/etc/sentinel/sentinel.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -I /opt/sentinel/sentinel.py --config /var/lib/sentinel/sentinel.json
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=15
+UMask=0077
+RuntimeDirectory=sentinel
+RuntimeDirectoryMode=0770
+ReadWritePaths=/var/lib/sentinel /run/sentinel
+ProtectSystem=strict
+# Fixed authorized_keys inventory needs read access; writes remain forbidden.
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SocketBindDeny=any
+# Launcher starts the one-way collector, then permanently drops the main UID/capabilities.
+# DNS monitor connects to a mode-0600 socket owned by systemd-resolve.
+# AF_UNIX connect checks write permission; DAC_READ_SEARCH alone is insufficient.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_SYS_PTRACE CAP_SETUID CAP_SETGID
+SystemCallFilter=~@mount @reboot @swap @module @raw-io @debug
+CPUQuota=5%
+MemoryMax=128M
+TasksMax=16
+Nice=15
+IOSchedulingClass=idle
+OOMScoreAdjust=500
+StandardOutput=journal
+StandardError=journal
+LogRateLimitIntervalSec=60
+LogRateLimitBurst=20
+
+[Install]
+WantedBy=multi-user.target
