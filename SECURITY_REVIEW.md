@@ -11,6 +11,18 @@ confirmation does not specify which individual integration or failure-path
 checks were run. See the [publication review](docs/publication-review.md) for
 the distinction between deployment confirmation and local automated checks.
 
+## 0.3.14 Telegram baseline approval
+
+Baseline approval is now available to authorised Telegram users through a
+same-user/chat digest confirmation within five minutes. The unprivileged process
+stores the approved snapshot in its private runtime state and compares later
+collector snapshots against it. The root collector still accepts no commands.
+Historical statements below that approval is local-root-only apply to earlier
+versions. Remote approval changes the trust model: an authorised Telegram account
+or compromised service account can replace the reference. Reviews expose bounded
+file and listener metadata, not file contents. Approval uses sampled observations,
+not a synchronous re-scan. See README for local/Telegram baseline precedence.
+
 ## Decision
 
 Sentinel is a useful foundation for a supplementary VPS watchdog. It is **not currently supported by sufficient evidence for a government-assured deployment**, and two reproduced alert-delivery defects should be fixed before depending on it for critical notices. It is not an endpoint protection system, a complete audit system, or an implementation of an entire security standard.

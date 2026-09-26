@@ -1,17 +1,17 @@
-# Sentinel 0.3.13
+# Sentinel 0.3.14
 
 A small, passive watchdog for Ubuntu 24.04 Gunbot VPS hosts. Python standard library only. Telegram is the UI; there is no listener, web server, database, packet capture, firewall change, trading action, or remote command facility.
 
 Start with [installation](#install-on-the-vps), then read the [configuration reference](docs/configuration.md) and [operations and troubleshooting guide](docs/operations.md). Developers should read [CONTRIBUTING.md](CONTRIBUTING.md). See [SECURITY.md](SECURITY.md) for privacy and reporting guidance, and [the publication review](docs/publication-review.md) for review scope and validation.
 
-Download `sentinel-0.3.13.tar.gz` and its `.sha256` file from
+Download `sentinel-0.3.14.tar.gz` and its `.sha256` file from
 [GitHub Releases](https://github.com/quantatrading/sentinel/releases/latest).
 Place both in the same directory on your Ubuntu server:
 
 ```bash
-sha256sum --check --strict sentinel-0.3.13.tar.gz.sha256
-tar -xzf sentinel-0.3.13.tar.gz
-cd sentinel-0.3.13
+sha256sum --check --strict sentinel-0.3.14.tar.gz.sha256
+tar -xzf sentinel-0.3.14.tar.gz
+cd sentinel-0.3.14
 sha256sum --check --strict SHA256SUMS
 sudo ./install.sh
 ```
@@ -75,7 +75,7 @@ Installed paths:
 
 | Path | Ownership/mode | Purpose |
 | --- | --- | --- |
-| `/opt/sentinel/sentinel.py`, `sentinel_checks.py`, `sentinel_whois.py` | root:root 0644 | Application, read-only inside the service |
+| `/opt/sentinel/sentinel.py`, `sentinel_checks.py`, `sentinel_whois.py`, `sentinel_baseline.py` | root:root 0644 | Application, read-only inside the service |
 | `/opt/sentinel/uninstall.sh` | root:root 0755 | Removal tool, available without the downloaded source |
 | `/etc/sentinel/` | root:root 0700 | Secret directory |
 | `/etc/sentinel/sentinel.env` | root:root 0600 | Telegram token and authorised IDs |
@@ -94,14 +94,43 @@ sudo systemctl start sentinel
 
 ## Security baseline and additional checks
 
-Installation starts monitoring, but drift comparison needs a reviewed baseline. With expected services running, inspect the local inventory, then supply its digest explicitly:
+Installation starts monitoring, but drift comparison needs a reviewed baseline.
+You can now approve it entirely through Telegram:
+
+1. Send `/baseline review`. The bot shows the sampled file/listener metadata and
+   a confirmation command containing its digest.
+2. Use `/baseline review 2` and subsequent pages to inspect additional entries.
+   Approval accepts the whole inventory, including pages you have not opened.
+3. If the setup is expected, send the exact `/baseline approve DIGEST` command
+   in the same chat, from the same authorised user, within five minutes.
+4. Send `/baseline` to confirm the approved state.
+
+Approval is rejected if the sampled inventory changes, is unavailable or stale,
+or the review has expired. Files are sampled every 60 seconds and listeners
+approximately every 10 seconds: this approves the latest complete observation,
+not a fresh on-demand scan or a declaration that the server is secure. No file
+contents are sent; the review contains paths, hashes, ownership, modes and
+listener metadata. These details may be sensitive, so use a trusted chat.
+
+Telegram approvals are saved with actor/chat IDs in the service-owned mode-0600
+configuration/state file and audited before acknowledgement. All authorised
+Telegram users can approve or replace a baseline. An attacker with access to an
+authorised account or the service account can therefore change this reference.
+The root collector remains read-only with no incoming command channel.
+
+Local-root approval is also available:
 
 ```bash
 sudo python3 -I /opt/sentinel/sentinel.py --baseline
 sudo python3 -I /opt/sentinel/sentinel.py --accept-baseline DIGEST
 ```
 
-Replace `DIGEST` with the SHA-256 printed by the first command after reviewing the inventory. Approval fails if the inventory changed between commands. Approval is local root only, recorded in the journal, and saved mode 0600 at `/etc/sentinel/baseline.json`. Telegram cannot approve a baseline. Repeat the review after intentional security changes. Upgrades preserve the baseline; changes to Sentinel's unit can therefore generate expected drift. Uninstall removes the baseline with the dedicated directory.
+Local approval freshly inspects the inventory and stores its reference at
+`/etc/sentinel/baseline.json`. A Telegram approval takes precedence while that
+local baseline digest remains unchanged. A subsequent local approval with a
+**different digest** clears the Telegram override on the next collector sample.
+Upgrades preserve both references; uninstall removes them. Review changes before
+replacing either baseline.
 
 The inventory hashes contents and permissions/ownership of SSH server configuration, authorized keys for root and direct `/home/*` users, sudo configuration, passwd/group, cron definitions, local systemd units and UFW configuration/rules. It reports additions, changes and removals without sending file contents. Nonstandard home directories are not covered. Symlinks are fingerprinted without following their targets; symlinked parent directories are marked rather than traversed. Limits are 512 files, 2 MiB per file, 16 MiB total and four nested directory levels; incomplete scans report unavailable rather than becoming an empty baseline. Files are sampled every 60 seconds.
 
@@ -133,6 +162,8 @@ Kernel OOM journal records alert from the time the collector starts. No delibera
 | `/selftest` | State write/read probe, collector freshness, delivery and coverage status |
 | `/listeners` | System TCP listeners and bound UDP endpoints, owners and available PID |
 | `/baseline` | Approved baseline status, observed digest and first 15 changes |
+| `/baseline review [page]` | Review sampled file/listener metadata and obtain an approval command |
+| `/baseline approve DIGEST` | Accept the reviewed inventory in the same chat within five minutes |
 | `/updates` | Recent tool/package observations and reboot-required status |
 | `/health` | Configured filesystems, inode use, clock and reboot status |
 | `/maintenance 1h` | Suppress Gunbot lifecycle/count/restart notices only; expires automatically |
@@ -225,7 +256,7 @@ The uninstaller removes the installed software and its dedicated data. It cannot
 
 ## Release integrity and support
 
-This release identifies itself as 0.3.13 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
+This release identifies itself as 0.3.14 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
 
 For releases, run `python3 release.py` after review and tests. Publish its resulting manifest digest through an independently trusted channel. An optional `SENTINEL_EXPECTED_MANIFEST_SHA256` pin makes the installer fail on a manifest mismatch. Verify that pin/manifest using trusted tooling **before executing the installer**; a modified installer cannot be trusted to verify itself. No signing identity or third-party certification is asserted by this package.
 
@@ -268,7 +299,7 @@ SENTINEL · READINESS · EXAMPLE-SERVER
 🟠 ATTENTION - 2 outstanding actions
 
 ACTION REQUIRED
-1. Review --baseline locally; approve its digest only if the inventory is expected.
+1. Use /baseline review; approve its digest only if the inventory is expected.
 2. Schedule a controlled server reboot manually; Sentinel will not restart it.
 
 OPERATIONAL STATUS
@@ -306,3 +337,5 @@ Version 0.3.11 displays the uppercase server label beside the report title and p
 Version 0.3.12 supports management IP configuration entirely through Telegram. `/management` lists trusted SSH sources; `/management add <IP/CIDR>` and `/management remove <IP/CIDR>` change the list. Bare addresses become /32 (IPv4) or /128 (IPv6); CIDRs are normalized to their network address and displayed in the acknowledgement. Removal requires an exact normalized rule, not a host contained within a wider rule. Existing chat/user authorization applies; changes are saved before acknowledgement and audited with the actor, target, operation and outcome. These settings classify SSH alerts and do not modify firewall rules or grant SSH login access.
 
 Version 0.3.13 removes the network-online boot dependency. Local monitoring starts after network.target without waiting for configured interfaces to become fully online; Telegram and collectors retry independently. This avoids delaying local monitoring behind systemd-networkd-wait-online when an interface is not ready. The correction does not disable or reconfigure the host network wait service. Verify startup on the next planned reboot; no production reboot is performed by the installer.
+
+Version 0.3.14 adds Telegram baseline review and approval with digest confirmation, same-user/chat binding, five-minute expiry, freshness checks, persistent state and audit logging. The collector remains read-only.

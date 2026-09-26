@@ -14,7 +14,8 @@ FILES = ('sentinel.py', 'sentinel_checks.py', 'sentinel_whois.py', 'test_whois.p
          'SECURITY_REVIEW.md', 'SECURITY.md', 'CONTRIBUTING.md', 'release.py',
          'docs/configuration.md', 'docs/operations.md', 'docs/publication-review.md',
          '.gitignore', '.github/workflows/ci.yml', '.github/workflows/release.yml',
-         'test_release.py', 'docs/releases/v0.3.13.md')
+         'test_release.py', 'docs/releases/v0.3.13.md', 'sentinel_baseline.py',
+         'test_baseline.py', 'docs/releases/v0.3.14.md')
 EXECUTABLES = {'install.sh', 'uninstall.sh', 'test_linux.sh'}
 
 

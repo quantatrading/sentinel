@@ -8,7 +8,11 @@ system, a complete audit archive or a security certification. See the
 
 Telegram receives report content including the configured server label, observed
 domains, IP addresses, usernames and process/security metadata. Authorised users
-can change rules and mute alerts. Use a dedicated bot and protect operator accounts.
+can change rules, mute alerts and approve a security baseline. Telegram baseline
+approvals are stored in service-owned state and can be replaced by any authorised
+user. A compromised operator or service account can alter this reference; it is
+not a root-protected trust anchor. Reviews disclose file paths, hashes, modes,
+ownership and listener metadata to the authorised chat, never file contents. Use a dedicated bot and protect operator accounts.
 
 Public destination IP alerts automatically query IANA and a fixed regional
 WHOIS registry over unencrypted TCP 43. This discloses the queried IP; registration

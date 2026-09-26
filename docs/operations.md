@@ -4,9 +4,10 @@
 
 1. Install on Ubuntu 24.04 with an already-active systemd-resolved.
 2. Send `/selftest`, `/status`, `/security` and `/network` to the dedicated bot.
-3. Review the local baseline with `sudo python3 -I /opt/sentinel/sentinel.py --baseline`.
-   Accept its exact digest only after reviewing files and listeners using
-   `sudo python3 -I /opt/sentinel/sentinel.py --accept-baseline DIGEST`.
+3. Send `/baseline review` in Telegram and inspect the inventory pages. If the
+   setup is expected, send the supplied `/baseline approve DIGEST` command from
+   the same user/chat within five minutes, then check `/baseline`. Local-root
+   approval remains available; see the README for precedence.
 4. Check the expected instance count, monitored filesystems and management IPs.
 5. Follow the [VPS acceptance checks](../README.md#verification-and-vps-acceptance).
    Unit tests alone do not verify the service sandbox or actual event coverage.
@@ -44,7 +45,8 @@ into a public issue.
 | No DNS events from Gunbot | Check whether Gunbot uses systemd-resolved; application DoH/DoT and other resolvers are outside coverage |
 | Unattributed IP at startup | Its DNS lookup may precede monitoring or use a shared address; investigate before approving rules |
 | WHOIS unavailable | TCP 43 may be blocked, or the registry/rate/capacity limit reached; alerts still deliver without registration data |
-| Baseline not approved / drift | Review the inventory locally; approve a new digest only for understood changes, never just to clear an alert |
+| Baseline not approved / drift | Use `/baseline review`; approve a new digest only for understood changes, never just to clear an alert |
+| Baseline approval rejected | Review again in the same chat/user; inventory may have changed, become stale or the five-minute review window may have expired |
 | Wrong instance count | Compare process names and parent/child families; adjust `expected_gunbot_instances` only after inspection |
 | Service stops safely | Use the logged error type, errno and code location; exception text is deliberately hidden to protect credentials |
 | Start limit reached | Correct the cause, then `sudo systemctl reset-failed sentinel` and `sudo systemctl start sentinel` |

@@ -25,7 +25,8 @@ Use unquoted `KEY=value` lines, with no shell expansion:
 
 Start a conversation with the bot before use. Both the chat and sender must be
 allowed. Every allowed user can administer Sentinel in any allowed chat; there
-is no view-only role. Bots, anonymous sender-chat identities, channel posts and
+is no view-only role. This includes `/baseline review` and `/baseline approve
+DIGEST`: any authorised user can replace the reference after reviewing it. Bots, anonymous sender-chat identities, channel posts and
 edited messages are rejected. Updates older than five minutes are ignored.
 Do not share the bot with another poller or webhook.
 
@@ -45,7 +46,7 @@ Unknown fields are rejected. Numeric ranges below include both endpoints.
 | `alert_cooldown_minutes` | `60` | 1–10,080; repeat observation notice cooldown |
 | `check_seconds` | `30` | 10–3,600; main evaluation interval; collector sampling has its own cadence |
 | `retention_days` | `7` | 1–30; inactive observation retention, also subject to capacity limits |
-| `runtime` | Generated | Internal observations, queues, offsets and delivery state; do not hand-edit |
+| `runtime` | Generated | Internal observations, queues, offsets, delivery state and Telegram-approved baseline; do not hand-edit |
 
 The `thresholds` object accepts:
 

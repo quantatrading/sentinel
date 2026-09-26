@@ -26,6 +26,7 @@ invalid token and does not verify real Telegram delivery.
 | `sentinel.py` | Configuration, collector streams, observations, Telegram authorization/delivery, reports and CLI |
 | `sentinel_checks.py` | Fixed host inventory, baselines, listeners, tools, package and health checks |
 | `sentinel_whois.py` | Bounded unprivileged WHOIS worker and cache |
+| `sentinel_baseline.py` | Telegram baseline review, confirmation and reference comparison |
 | `sentinel.service` | systemd sandbox, resource limits and watchdog |
 | `install.sh`, `uninstall.sh` | Fixed-path installation and removal |
 | `test_*.py`, `test_linux.sh` | Mocked logic tests and disposable system integration |
@@ -52,10 +53,10 @@ Create a local installation package after regenerating and reviewing the manifes
 
 ```bash
 python3 release.py --check
-python3 release.py --build --tag v0.3.13
+python3 release.py --build --tag v0.3.14
 ```
 
-The output is `dist/sentinel-0.3.13.tar.gz` and its `.sha256` file. Only files in
+The output is `dist/sentinel-0.3.14.tar.gz` and its `.sha256` file. Only files in
 `FILES` plus `SHA256SUMS` enter the archive; generated caches and local files are
 excluded. Archive ownership, timestamps and modes are normalized; installers
 remain executable. The build fails if a file changed since manifest generation
@@ -69,8 +70,8 @@ To publish a new version:
 4. Create and push the matching tag, for example:
 
    ```bash
-   git tag -a v0.3.13 -m "Sentinel 0.3.13"
-   git push origin v0.3.13
+   git tag -a v0.3.14 -m "Sentinel 0.3.14"
+   git push origin v0.3.14
    ```
 
 The **Release** GitHub Actions workflow runs on `v*` tags. It runs tests on

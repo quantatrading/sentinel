@@ -32,11 +32,12 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sentinel_checks as checks
 import sentinel_whois as whois
+import sentinel_baseline as baselines
 
 LOG = logging.getLogger('sentinel')
 MAX_STATE = 4 * 1024 * 1024
 LIMIT = 2000
-VERSION = '0.3.13'
+VERSION = '0.3.14'
 MAX_PENDING = 200
 HELP = """SENTINEL COMMAND GUIDE
 Purpose: inspect host security, monitoring readiness and Gunbot activity.
@@ -53,7 +54,9 @@ ACTIVITY AND EVIDENCE
 /listeners - System listening/bound endpoints and their observed process owners.
 /recent - Recent alerts, observation counts and first/last observation times.
 /updates - Observed package/download tools, dpkg changes and reboot status.
-/baseline - Security baseline status and detected file/listener changes. Approval is local root only.
+/baseline - Security baseline status and detected changes.
+/baseline review [page] - Review current file/listener metadata.
+/baseline approve <digest> - Accept the inventory you reviewed within 5 minutes.
 
 DOMAIN RULES
 /known - Show approved domain rules. These are Sentinel rules, not firewall rules.
@@ -152,11 +155,13 @@ def fresh():
     return {'events': {}, 'recent': [], 'processes': {}, 'mute_until': 0,
             'offset': 0, 'down': False, 'pending': {}, 'delivery_gaps': 0,
             'maintenance_until': 0, 'process_starts': [], 'tracking_started': False,
-            'count_mismatch': False, 'seen_tools': {}, 'package_digest': '', 'selftest_delivery': 0}
+            'approved_baseline': None, 'count_mismatch': False, 'seen_tools': {}, 'package_digest': '', 'selftest_delivery': 0}
 
 
 def valid_runtime(s):
     if not isinstance(s, dict) or set(s) != set(fresh()):
+        return False
+    if not baselines.valid_approval(s['approved_baseline']):
         return False
     for key in ('maintenance_until', 'selftest_delivery'):
         if type(s[key]) not in (int, float) or not math.isfinite(s[key]) or s[key] < 0:
@@ -758,6 +763,7 @@ class Sentinel:
         self.rate = {0: collections.deque(), 1: collections.deque()}
         self.observation = None
         self.host = {}
+        self.baseline_reviews = {}
         self.filesystems = {}
         self.last_dns = 0
         self.started = time.time()
@@ -1015,6 +1021,7 @@ class Sentinel:
         self.dirty = True
 
     def observe_host(self, host):
+        host = baselines.apply(self, host)
         self.host = host
         now = time.time()
         self.health.update(host.get('health', {}))
@@ -1023,7 +1030,7 @@ class Sentinel:
                 self.event('collector:' + name, 'Host check unavailable: ' + name)
         baseline = host.get('baseline', {})
         if baseline.get('status') == 'not approved':
-            self.event('baseline:missing', 'Security baseline needs local administrator review; use /baseline.')
+            self.event('baseline:missing', 'Security baseline needs administrator review; use /baseline review.')
         for change in baseline.get('changes', []):
             name = change['name']
             category = 'UFW DRIFT' if name.startswith(('/etc/ufw/', '/etc/default/ufw')) else (
@@ -1119,8 +1126,10 @@ class Sentinel:
             return ''
         actions = []
         if command == '/baseline':
+            if response.startswith(('Baseline approved', 'Baseline review')):
+                return ''
             baseline = self.host.get('baseline', {}).get('status')
-            return {'not approved': 'Review --baseline locally; approve its digest only if the inventory is expected.',
+            return {'not approved': 'Use /baseline review, then /baseline approve DIGEST only if the inventory is expected.',
                     'drift': 'Investigate the listed changes before approving new baseline state.',
                     'matches approved baseline': ''}.get(baseline, 'Restore baseline inspection; check Sentinel service logs.')
         if 'State write/read: FAIL' in response:
@@ -1135,7 +1144,7 @@ class Sentinel:
             actions.append('Investigate checks that are not ready: ' + ', '.join(sorted(failed)) + '.')
         baseline = self.host.get('baseline', {}).get('status')
         if baseline == 'not approved':
-            actions.append('Review --baseline locally; approve its digest only if the inventory is expected.')
+            actions.append('Use /baseline review, then /baseline approve DIGEST only if the inventory is expected.')
         elif baseline == 'drift':
             actions.append('Investigate baseline changes with /baseline before approving new state.')
         elif baseline != 'matches approved baseline':
@@ -1195,7 +1204,7 @@ class Sentinel:
         return ('Management IPs updated.\n' + ('Trusted SSH source added: ' if args[0] == 'add' else 'Trusted SSH source removed: ') +
                 network + '\nEffective immediately. Firewall rules are unchanged.')
 
-    def command(self, text):
+    def command(self, text, actor=None, chat=None):
         if not isinstance(text, str) or len(text) > 300:
             return 'Invalid command. ' + HELP
         parts = text.strip().split()
@@ -1203,6 +1212,8 @@ class Sentinel:
             return HELP
         cmd = parts[0].split('@')[0]
         args = parts[1:]
+        if cmd == '/baseline':
+            return baselines.command(self, args, actor, chat)
         if cmd == '/management':
             return self.management(args)
         if cmd in ('/allow', '/remove', '/mute', '/maintenance'):
@@ -1255,11 +1266,6 @@ class Sentinel:
             return 'Maintenance updated: ' + ('OFF - Gunbot lifecycle alerts resumed.' if args[0] == 'off' else 'ACTIVE until ' + stamp(self.s['maintenance_until']) + '.\nGunbot lifecycle notices suppressed; security monitoring stays active.')
         if cmd == '/selftest':
             return self.selftest()
-        if cmd == '/baseline':
-            baseline = self.host.get('baseline', {})
-            return (f"{baseline_report(baseline.get('status'))}\nObserved digest: {baseline.get('digest', 'unknown')}\n"
-                    + '\n'.join(x['change'] + ': ' + x['name'] for x in baseline.get('changes', [])[:15])
-                    + '\nApproval requires the local root --baseline/--accept-baseline commands.')[:3800]
         if cmd == '/listeners':
             if not self.host.get('health', {}).get('listeners_tools', self.health.get('listeners_tools', '')).startswith('ok'):
                 return status_line('Listeners', 'UNKNOWN', 'inspection unavailable or not yet sampled')
@@ -1459,11 +1465,12 @@ def audit_action(app, message, update_id):
     text = message.get('text', '')
     cmd = text.split()[0].split('@')[0] if isinstance(text, str) and text.split() else ''
     management_change = cmd == '/management' and len(text.split()) > 1 and text.split()[1] in ('add', 'remove')
-    mutation = cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change
-    before = {'known_management_ips': list(app.cfg['known_management_ips']), 'known_domains': list(app.cfg['known_domains']),
+    baseline_change = cmd == '/baseline' and len(text.split()) > 1 and text.split()[1] == 'approve'
+    mutation = baseline_change or cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change
+    before = {'approved_baseline': app.s['approved_baseline'], 'known_management_ips': list(app.cfg['known_management_ips']), 'known_domains': list(app.cfg['known_domains']),
               'known_domain_suffixes': list(app.cfg['known_domain_suffixes']), 'mute_until': app.s['mute_until'], 'maintenance_until': app.s['maintenance_until']}
     try:
-        response = app.command(text)
+        response = app.command(text, actor=message['from']['id'], chat=message['chat']['id'])
     except ValueError:
         response = 'Invalid input. ' + HELP
     app.s['offset'] = update_id + 1
@@ -1482,12 +1489,14 @@ def audit_action(app, message, update_id):
                 target = domain(text.split()[1], wildcard=True)
             except ValueError:
                 pass
+        if baseline_change and len(text.split()) == 3 and re.fullmatch(r'[a-f0-9]{64}', text.split()[2]):
+            target = text.split()[2]
         if management_change and len(text.split()) == 3:
             try:
                 target = str(ipaddress.ip_network(text.split()[2], strict=False))
             except ValueError:
                 pass
-        changed = (before['known_management_ips'] != app.cfg['known_management_ips'] or before['known_domains'] != app.cfg['known_domains'] or
+        changed = (before['approved_baseline'] != app.s['approved_baseline'] or before['known_management_ips'] != app.cfg['known_management_ips'] or before['known_domains'] != app.cfg['known_domains'] or
                    before['known_domain_suffixes'] != app.cfg['known_domain_suffixes'] or
                    before['mute_until'] != app.s['mute_until'] or before['maintenance_until'] != app.s['maintenance_until'])
         LOG.info('AUDIT %s', json.dumps({'at': time.time(), 'actor': message['from']['id'],
@@ -1495,7 +1504,7 @@ def audit_action(app, message, update_id):
                  'target': target, 'changed': changed, 'management_operation': text.split()[1] if management_change else None, 'mute_before': before['mute_until'],
                  'mute_after': app.s['mute_until'], 'maintenance_before': before['maintenance_until'],
                  'maintenance_after': app.s['maintenance_until'], 'outcome': 'applied' if response.startswith(
-                     ('Sentinel domain rules updated', 'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
+                     ('Baseline approved', 'Sentinel domain rules updated', 'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
     return response
 
 

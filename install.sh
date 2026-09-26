@@ -68,7 +68,7 @@ except ValueError:
     sys.exit('Invalid Telegram credentials or ID lists; see sentinel.env.example')
 PY
 fi
-for target in /var/lib/sentinel/sentinel.json /etc/sentinel/sentinel.env /opt/sentinel/sentinel.py /opt/sentinel/sentinel_checks.py /opt/sentinel/sentinel_whois.py /opt/sentinel/uninstall.sh /etc/systemd/system/sentinel.service; do
+for target in /var/lib/sentinel/sentinel.json /etc/sentinel/sentinel.env /opt/sentinel/sentinel.py /opt/sentinel/sentinel_checks.py /opt/sentinel/sentinel_whois.py /opt/sentinel/sentinel_baseline.py /opt/sentinel/uninstall.sh /etc/systemd/system/sentinel.service; do
     [[ ! -L "$target" ]] || { echo "Refusing symlink: $target" >&2; exit 1; }
 done
 # Abort on a failed stop; never replace a running application.
@@ -100,7 +100,7 @@ elif [[ ! -f /etc/sentinel/account-created ]]; then
     exit 1
 fi
 /usr/bin/systemd-analyze verify sentinel.service
-install -o root -g root -m 0644 sentinel.py sentinel_checks.py sentinel_whois.py /opt/sentinel/
+install -o root -g root -m 0644 sentinel.py sentinel_checks.py sentinel_whois.py sentinel_baseline.py /opt/sentinel/
 install -o root -g root -m 0755 uninstall.sh /opt/sentinel/uninstall.sh
 install -o root -g root -m 0644 sentinel.service /etc/systemd/system/sentinel.service
 chown root:root /etc/sentinel/sentinel.env
@@ -127,7 +127,7 @@ chmod 0600 /etc/sentinel/sentinel.env
 /usr/bin/python3 -I /opt/sentinel/sentinel.py --health-check
 echo 'Sentinel started. Check: sudo journalctl -u sentinel.service -n 30 --no-pager'
 echo 'Then send /selftest and /security to the dedicated Telegram bot.'
-echo 'Review the initial security inventory: sudo python3 -I /opt/sentinel/sentinel.py --baseline'
-echo 'Approve its reviewed digest: sudo python3 -I /opt/sentinel/sentinel.py --accept-baseline DIGEST'
+echo 'Review the initial security inventory in Telegram: /baseline review'
+echo 'Approve its reviewed digest in the same chat: /baseline approve DIGEST'
 echo 'Set expected_gunbot_instances and monitored_paths in /var/lib/sentinel/sentinel.json while the service is stopped.'
 echo 'To remove Sentinel: sudo /opt/sentinel/uninstall.sh'

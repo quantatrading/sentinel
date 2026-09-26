@@ -213,6 +213,10 @@ def baseline_compare(current):
     expected = json.loads(BASELINE.read_text())
     if expected.get('digest') != digest(expected.get('inventory')):
         raise ValueError('Baseline checksum mismatch')
+    return compare_inventory(current, expected)
+
+
+def compare_inventory(current, expected):
     changes = []
     for kind in ('files', 'listeners'):
         old, new = expected['inventory'][kind], current[kind]
@@ -309,6 +313,7 @@ class HostChecks:
                 self.slow['package_inventory'] = {'error': 'unavailable'}
             try:
                 self.slow['files'] = security_files()
+                self.slow['inventory_at'] = time.time()
             except (OSError, ValueError):
                 self.slow['file_error'] = 'Security inventory incomplete'
             self.next_slow = time.monotonic() + 60
@@ -317,7 +322,8 @@ class HostChecks:
         try:
             if listeners is None or 'files' not in self.slow:
                 raise ValueError('Inventory incomplete')
-            result['baseline'] = baseline_compare({'files': self.slow['files'], 'listeners': listeners})
+            result['baseline_inventory'] = {'files': self.slow['files'], 'listeners': listeners}
+            result['baseline'] = baseline_compare(result['baseline_inventory'])
             result['health']['security_files'] = 'ok (hashed every 60s)'
         except (OSError, ValueError, KeyError, TypeError):
             result['baseline'] = {'status': 'unavailable', 'changes': []}

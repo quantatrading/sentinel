@@ -130,7 +130,7 @@ class SentinelTests(unittest.TestCase):
         self.app.host = {'baseline': {'status': 'not approved'}, 'clock_sync': 'yes', 'reboot_required': True}
         actions = self.app.report_actions('/selftest', '')
         self.assertEqual(len(actions.splitlines()), 2)
-        self.assertIn('Review --baseline locally', actions)
+        self.assertIn('/baseline review', actions)
         self.assertIn('controlled server reboot', actions)
         self.assertNotIn('unavailable', actions)
         self.app.host['baseline']['status'] = 'matches approved baseline'
