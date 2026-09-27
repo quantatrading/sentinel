@@ -14,6 +14,13 @@
 
 ## Daily use
 
+Use `/sentinel` for tracked security changes and their references.
+`/sentinel investigate REF` shows previous/current state and listener owners.
+`/sentinel acknowledge REF` records review without accepting the change;
+`/sentinel approve REF` accepts only that current difference. A repeated check
+is not a new incident, and unchanged persistent drift does not send repeat
+warnings. Use `/baseline review` only to replace the whole reference.
+
 Use `/status` for a summary, `/recent` for retained events, `/network` for sampled
 connections, and `/health` for filesystems, clock and reboot status. Unknown DNS
 and IP observations warrant investigation; they do not prove compromise.
@@ -45,7 +52,9 @@ into a public issue.
 | No DNS events from Gunbot | Check whether Gunbot uses systemd-resolved; application DoH/DoT and other resolvers are outside coverage |
 | Unattributed IP at startup | Its DNS lookup may precede monitoring or use a shared address; investigate before approving rules |
 | WHOIS unavailable | TCP 43 may be blocked, or the registry/rate/capacity limit reached; alerts still deliver without registration data |
-| Baseline not approved / drift | Use `/baseline review`; approve a new digest only for understood changes, never just to clear an alert |
+| Baseline not approved | Use `/baseline review`; approve a digest only for an expected setup |
+| Baseline drift | Use `/sentinel investigate REF`; acknowledge review or approve just that expected difference |
+| Historical listener PID unavailable | Older baselines did not record PIDs; names/UIDs remain available. Do not infer a historical PID from current processes |
 | Baseline approval rejected | Review again in the same chat/user; inventory may have changed, become stale or the five-minute review window may have expired |
 | Wrong instance count | Compare process names and parent/child families; adjust `expected_gunbot_instances` only after inspection |
 | Service stops safely | Use the logged error type, errno and code location; exception text is deliberately hidden to protect credentials |

@@ -9,7 +9,7 @@ import sentinel_checks as checks
 
 
 def valid_inventory(value):
-    if not isinstance(value, dict) or set(value) != {'files', 'listeners'}:
+    if not isinstance(value, dict) or not {'files', 'listeners'} <= set(value) or set(value) - {'files', 'listeners', 'listener_processes'}:
         return False
     if any(not isinstance(value[k], dict) or len(value[k]) > 512 for k in value):
         return False
@@ -18,7 +18,7 @@ def valid_inventory(value):
         return False
     if not all(isinstance(k, str) and len(k) <= 1024 and isinstance(v, list)
                and all(isinstance(owner, str) and len(owner) <= 320 for owner in v)
-               for k, v in value['listeners'].items()):
+               for k, v in list(value['listeners'].items()) + list(value.get('listener_processes', {}).items())):
         return False
     try:
         return len(json.dumps(value, allow_nan=False)) <= 512 * 1024
@@ -31,7 +31,7 @@ def valid_approval(value):
         return True
     return (isinstance(value, dict) and set(value) == {'inventory', 'digest', 'local_digest', 'actor', 'chat', 'at'}
             and valid_inventory(value['inventory'])
-            and value['digest'] == checks.digest(value['inventory'])
+            and value['digest'] == checks.inventory_digest(value['inventory'])
             and (value['local_digest'] is None or isinstance(value['local_digest'], str)
                  and re.fullmatch(r'[a-f0-9]{64}', value['local_digest']) is not None)
             and type(value['actor']) is int and value['actor'] > 0
@@ -85,15 +85,15 @@ def command(app, args, actor, chat):
     if not available(app, now):
         return 'Baseline unavailable or stale. Wait for a complete fresh collector sample, then /baseline review.'
     current = app.host['baseline_inventory']
-    digest = checks.digest(current)
+    digest = checks.inventory_digest(current)
     app.baseline_reviews = {key: value for key, value in app.baseline_reviews.items()
                             if 0 <= now - value['at'] < 300}
     key = (actor, chat)
     if operation == 'review':
         # Every page refers to this digest; no raw file contents leave the collector.
         lines = [f"Files: {len(current['files'])}; listening endpoints: {len(current['listeners'])}."]
-        for kind in ('files', 'listeners'):
-            for name, metadata in sorted(current[kind].items()):
+        for kind in ('files', 'listeners', 'listener_processes'):
+            for name, metadata in sorted(current.get(kind, {}).items()):
                 line = kind + ': ' + json.dumps(checks.label(name), ensure_ascii=True) + '\n' + json.dumps(metadata, sort_keys=True, ensure_ascii=True)
                 lines.extend(line[i:i + 1800] for i in range(0, len(line), 1800))
         pages, page = [], ''
@@ -125,6 +125,10 @@ def command(app, args, actor, chat):
                                 'local_digest': review['local_digest'], 'actor': actor, 'chat': chat, 'at': now}
     app.host['baseline'] = dict(checks.compare_inventory(current, app.s['approved_baseline']), source='Telegram approval')
     app.baseline_reviews.clear()
+    for record in app.s['incidents'].values():
+        if record['state'] in ('detected', 'persistent', 'acknowledged'):
+            record.update(state='approved', actor=actor, chat=chat, reviewed_at=now)
+            app.s['pending'].pop('incident:' + record['ref'], None)
     app.dirty = True
     return ('Baseline approved. Future changes will be compared with this inventory.\n'
             f'Digest: {digest}\nThis records expected state; it is not a security assessment.')

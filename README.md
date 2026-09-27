@@ -1,17 +1,17 @@
-# Sentinel 0.3.14
+# Sentinel 0.3.15
 
 A small, passive watchdog for Ubuntu 24.04 Gunbot VPS hosts. Python standard library only. Telegram is the UI; there is no listener, web server, database, packet capture, firewall change, trading action, or remote command facility.
 
 Start with [installation](#install-on-the-vps), then read the [configuration reference](docs/configuration.md) and [operations and troubleshooting guide](docs/operations.md). Developers should read [CONTRIBUTING.md](CONTRIBUTING.md). See [SECURITY.md](SECURITY.md) for privacy and reporting guidance, and [the publication review](docs/publication-review.md) for review scope and validation.
 
-Download `sentinel-0.3.14.tar.gz` and its `.sha256` file from
+Download `sentinel-0.3.15.tar.gz` and its `.sha256` file from
 [GitHub Releases](https://github.com/quantatrading/sentinel/releases/latest).
 Place both in the same directory on your Ubuntu server:
 
 ```bash
-sha256sum --check --strict sentinel-0.3.14.tar.gz.sha256
-tar -xzf sentinel-0.3.14.tar.gz
-cd sentinel-0.3.14
+sha256sum --check --strict sentinel-0.3.15.tar.gz.sha256
+tar -xzf sentinel-0.3.15.tar.gz
+cd sentinel-0.3.15
 sha256sum --check --strict SHA256SUMS
 sudo ./install.sh
 ```
@@ -75,7 +75,7 @@ Installed paths:
 
 | Path | Ownership/mode | Purpose |
 | --- | --- | --- |
-| `/opt/sentinel/sentinel.py`, `sentinel_checks.py`, `sentinel_whois.py`, `sentinel_baseline.py` | root:root 0644 | Application, read-only inside the service |
+| `/opt/sentinel/sentinel.py`, `sentinel_checks.py`, `sentinel_whois.py`, `sentinel_baseline.py`, `sentinel_incidents.py` | root:root 0644 | Application, read-only inside the service |
 | `/opt/sentinel/uninstall.sh` | root:root 0755 | Removal tool, available without the downloaded source |
 | `/etc/sentinel/` | root:root 0700 | Secret directory |
 | `/etc/sentinel/sentinel.env` | root:root 0600 | Telegram token and authorised IDs |
@@ -144,6 +144,56 @@ Kernel OOM journal records alert from the time the collector starts. No delibera
 
 `/selftest` tests private state writes and collector freshness. Receiving the reply confirms Telegram delivery; it does not prove that every collector has observed a real event. `/selftest`, `/health` and `/baseline` expose unavailable checks. For authorized-key inventory the service uses `ProtectHome=read-only` rather than hiding home directories; the root collector therefore has broader read visibility, restricted in code to the fixed inventory. Private keys are not intentionally read. This tradeoff should be considered when reviewing collector compromise risk.
 
+## Understand and approve a security change
+
+Baseline changes now have a stable eight-character reference and a lifecycle.
+A new difference generates one orange warning. Further unchanged observations
+update the same record to **persistent**, including its first/last observation,
+check count and elapsed duration; they do not generate hourly warnings. Pending
+network deliveries can still retry until settled. Persistent reports use an
+informational presentation without another ACTION REQUIRED heading.
+
+```text
+/sentinel
+/sentinel investigate 432DE676
+/sentinel acknowledge 432DE676
+/sentinel approve 432DE676
+```
+
+Use the reference from your own alert; `432DE676` is only an example.
+`/sentinel [page]` lists records, 20 per page. Investigation explains the before
+and after state. **Acknowledge** records that an authorised operator has reviewed
+the change, leaves the reference baseline unchanged, and stops pending warnings.
+**Approve** accepts only that current difference into the reference; other file
+or listener differences still require review. Neither command changes firewall,
+process or service configuration. Mutations are saved before acknowledgement and
+audited with actor, chat, operation and reference.
+
+A stale or changed observation cannot be approved. Incomplete change lists cannot
+be individually approved because that could accidentally accept other changes.
+Use full `/baseline review` only when you intend to review and replace the whole
+reference. All authorised Telegram users may acknowledge or approve changes.
+
+Listener reports preserve baseline process names, UIDs and PIDs, including
+multiple observed owners. An old baseline without PID metadata reports **PID not
+recorded**; Sentinel cannot reconstruct a missing historical PID. PID metadata is
+informational and excluded from the baseline digest/comparison so an ordinary
+process restart does not itself create drift. Addresses, ports and owner
+name/UID changes still do. An observed listener does not prove external reachability.
+
+Records survive restart. A return to the expected state resolves an active
+change; a later recurrence creates a new reference. Approving a removal makes
+that absence expected, so the listener returning becomes a new addition.
+Unchanged legacy drift counters migrate without hourly re-alerts; use `/sentinel`
+for the new references, since old arbitrary message references are not recoverable.
+
+At most 256 change records are retained; closed records are evicted first. If all
+slots are active, Sentinel reports capacity exhaustion and remaining differences
+are still available through `/baseline`. Counts represent sampled observations,
+not independent incidents; file metadata can be cached between scans. Elapsed
+duration can include downtime or missing samples. Unavailable observations do not
+resolve a change. None of these states establishes that the server is secure.
+
 ## Telegram commands
 
 | Command | Result |
@@ -161,6 +211,10 @@ Kernel OOM journal records alert from the time the collector starts. No delibera
 | `/unmute` | Resume future notifications; muted observations remain in history |
 | `/selftest` | State write/read probe, collector freshness, delivery and coverage status |
 | `/listeners` | System TCP listeners and bound UDP endpoints, owners and available PID |
+| `/sentinel [page]` | Tracked change references and lifecycle status |
+| `/sentinel investigate REF` | Before/after evidence, process owners, duration and checks |
+| `/sentinel acknowledge REF` | Mark reviewed without changing the baseline |
+| `/sentinel approve REF` | Accept only this currently observed difference |
 | `/baseline` | Approved baseline status, observed digest and first 15 changes |
 | `/baseline review [page]` | Review sampled file/listener metadata and obtain an approval command |
 | `/baseline approve DIGEST` | Accept the reviewed inventory in the same chat within five minutes |
@@ -256,7 +310,7 @@ The uninstaller removes the installed software and its dedicated data. It cannot
 
 ## Release integrity and support
 
-This release identifies itself as 0.3.14 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
+This release identifies itself as 0.3.15 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
 
 For releases, run `python3 release.py` after review and tests. Publish its resulting manifest digest through an independently trusted channel. An optional `SENTINEL_EXPECTED_MANIFEST_SHA256` pin makes the installer fail on a manifest mismatch. Verify that pin/manifest using trusted tooling **before executing the installer**; a modified installer cannot be trusted to verify itself. No signing identity or third-party certification is asserted by this package.
 
@@ -339,3 +393,5 @@ Version 0.3.12 supports management IP configuration entirely through Telegram. `
 Version 0.3.13 removes the network-online boot dependency. Local monitoring starts after network.target without waiting for configured interfaces to become fully online; Telegram and collectors retry independently. This avoids delaying local monitoring behind systemd-networkd-wait-online when an interface is not ready. The correction does not disable or reconfigure the host network wait service. Verify startup on the next planned reboot; no production reboot is performed by the installer.
 
 Version 0.3.14 adds Telegram baseline review and approval with digest confirmation, same-user/chat binding, five-minute expiry, freshness checks, persistent state and audit logging. The collector remains read-only.
+
+Version 0.3.15 introduces persistent security-change records, scoped acknowledgement/approval, and listener PID history. Unchanged baseline drift no longer produces hourly warnings.

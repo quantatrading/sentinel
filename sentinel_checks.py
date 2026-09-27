@@ -184,6 +184,9 @@ def host_processes():
                         if owner not in entry['owners']:
                             entry['owners'].append(owner)
                         entry['pid'] = int(process.name)
+                        detail = f'{label(comm)} PID {process.name} UID {uid}'
+                        if detail not in entry.setdefault('processes', []):
+                            entry['processes'].append(detail)
                     scanned += 1
                     if scanned > 100000:
                         raise ValueError('FD inspection limit exceeded')
@@ -200,18 +203,34 @@ def host_processes():
     return {k: sorted(v) for k, v in listeners.items()}, display, tools
 
 
+def listener_processes(details):
+    result = {}
+    for entry in details:
+        key = f"{entry['protocol']} {entry['ip']}:{entry['port']}"
+        result.setdefault(key, []).extend(entry.get('processes', []))
+    return {key: sorted(set(owners)) for key, owners in result.items()}
+
+
+def inventory_digest(value):
+    # PID observations are useful evidence, not stable identity or baseline drift.
+    if isinstance(value, dict) and 'listener_processes' in value:
+        value = {key: val for key, val in value.items() if key != 'listener_processes'}
+    return digest(value)
+
+
 def inventory():
-    listeners, _, _ = host_processes()
-    return {'files': security_files(), 'listeners': listeners}
+    listeners, details, _ = host_processes()
+    return {'files': security_files(), 'listeners': listeners,
+            'listener_processes': listener_processes(details)}
 
 
 def baseline_compare(current):
     if not BASELINE.exists():
-        return {'status': 'not approved', 'digest': digest(current), 'changes': []}
+        return {'status': 'not approved', 'digest': inventory_digest(current), 'changes': []}
     if BASELINE.is_symlink() or BASELINE.stat().st_uid != 0 or BASELINE.stat().st_mode & 0o022 or BASELINE.stat().st_size > 1024 * 1024:
         raise ValueError('Unsafe baseline file')
     expected = json.loads(BASELINE.read_text())
-    if expected.get('digest') != digest(expected.get('inventory')):
+    if expected.get('digest') != inventory_digest(expected.get('inventory')):
         raise ValueError('Baseline checksum mismatch')
     return compare_inventory(current, expected)
 
@@ -222,10 +241,13 @@ def compare_inventory(current, expected):
         old, new = expected['inventory'][kind], current[kind]
         for key in sorted(old.keys() | new.keys()):
             if old.get(key) != new.get(key):
-                changes.append({'kind': kind, 'name': label(key), 'fingerprint': digest(new.get(key)),
+                changes.append({'kind': kind, 'name': key, 'fingerprint': digest(new.get(key)),
+                                'before': old.get(key), 'after': new.get(key),
+                                'previous_processes': expected['inventory'].get('listener_processes', {}).get(key, []),
+                                'current_processes': current.get('listener_processes', {}).get(key, []),
                                 'change': 'added' if key not in old else 'removed' if key not in new else 'changed'})
-    return {'status': 'drift' if changes else 'matches approved baseline', 'digest': digest(current),
-            'expected_digest': expected['digest'], 'changes': changes[:1024]}
+    return {'status': 'drift' if changes else 'matches approved baseline', 'digest': inventory_digest(current),
+            'expected_digest': expected['digest'], 'changes': changes[:1024], 'changes_complete': len(changes) <= 1024}
 
 
 def filesystem_usage(paths):
@@ -322,7 +344,8 @@ class HostChecks:
         try:
             if listeners is None or 'files' not in self.slow:
                 raise ValueError('Inventory incomplete')
-            result['baseline_inventory'] = {'files': self.slow['files'], 'listeners': listeners}
+            result['baseline_inventory'] = {'files': self.slow['files'], 'listeners': listeners,
+                                            'listener_processes': listener_processes(display)}
             result['baseline'] = baseline_compare(result['baseline_inventory'])
             result['health']['security_files'] = 'ok (hashed every 60s)'
         except (OSError, ValueError, KeyError, TypeError):

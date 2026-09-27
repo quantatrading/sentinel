@@ -115,7 +115,7 @@ class BaselineTests(unittest.TestCase):
              patch.object(c, 'security_files', return_value=self.inventory['files']), \
              patch.object(c, 'baseline_compare', return_value=self.host['baseline']):
             result = host.sample()
-            self.assertEqual(result['baseline_inventory'], self.inventory)
+            self.assertEqual(result['baseline_inventory'], dict(self.inventory, listener_processes={}))
             self.assertLess(abs(result['inventory_at'] - time.time()), 5)
             host.next_slow = 0
             with patch.object(c, 'security_files', side_effect=ValueError('incomplete')):

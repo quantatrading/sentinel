@@ -23,6 +23,17 @@ or compromised service account can replace the reference. Reviews expose bounded
 file and listener metadata, not file contents. Approval uses sampled observations,
 not a synchronous re-scan. See README for local/Telegram baseline precedence.
 
+## 0.3.15 Security-change lifecycle
+
+Unchanged drift now updates a bounded persistent record rather than triggering
+hourly warnings. Acknowledgement preserves baseline drift while suppressing its
+pending notices. Scoped approval reconstructs the expected reference from the
+complete difference list and applies only the selected current change; incomplete
+or stale observations are refused. Approvals retain the Telegram trust model
+above. PID metadata is retained for explanation but excluded from baseline
+identity to avoid restart noise. No historical PID is inferred when absent.
+Checks count observations, not separate incidents or uninterrupted coverage.
+
 ## Decision
 
 Sentinel is a useful foundation for a supplementary VPS watchdog. It is **not currently supported by sufficient evidence for a government-assured deployment**, and two reproduced alert-delivery defects should be fixed before depending on it for critical notices. It is not an endpoint protection system, a complete audit system, or an implementation of an entire security standard.

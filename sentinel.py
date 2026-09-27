@@ -33,11 +33,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sentinel_checks as checks
 import sentinel_whois as whois
 import sentinel_baseline as baselines
+import sentinel_incidents as incidents
 
 LOG = logging.getLogger('sentinel')
 MAX_STATE = 4 * 1024 * 1024
 LIMIT = 2000
-VERSION = '0.3.14'
+VERSION = '0.3.15'
 MAX_PENDING = 200
 HELP = """SENTINEL COMMAND GUIDE
 Purpose: inspect host security, monitoring readiness and Gunbot activity.
@@ -54,6 +55,10 @@ ACTIVITY AND EVIDENCE
 /listeners - System listening/bound endpoints and their observed process owners.
 /recent - Recent alerts, observation counts and first/last observation times.
 /updates - Observed package/download tools, dpkg changes and reboot status.
+/sentinel [page] - List tracked security changes.
+/sentinel investigate <ref> - Explain one change and its process history.
+/sentinel acknowledge <ref> - Mark reviewed; keep the baseline unchanged.
+/sentinel approve <ref> - Accept only this current change into the baseline.
 /baseline - Security baseline status and detected changes.
 /baseline review [page] - Review current file/listener metadata.
 /baseline approve <digest> - Accept the inventory you reviewed within 5 minutes.
@@ -155,11 +160,13 @@ def fresh():
     return {'events': {}, 'recent': [], 'processes': {}, 'mute_until': 0,
             'offset': 0, 'down': False, 'pending': {}, 'delivery_gaps': 0,
             'maintenance_until': 0, 'process_starts': [], 'tracking_started': False,
-            'approved_baseline': None, 'count_mismatch': False, 'seen_tools': {}, 'package_digest': '', 'selftest_delivery': 0}
+            'incidents': {}, 'approved_baseline': None, 'count_mismatch': False, 'seen_tools': {}, 'package_digest': '', 'selftest_delivery': 0}
 
 
 def valid_runtime(s):
     if not isinstance(s, dict) or set(s) != set(fresh()):
+        return False
+    if not incidents.valid_state(s['incidents']):
         return False
     if not baselines.valid_approval(s['approved_baseline']):
         return False
@@ -320,6 +327,8 @@ def reboot_report(value):
 
 
 def baseline_report(value):
+    if value == 'acknowledged drift':
+        return status_line('Baseline', 'INFO', 'changes acknowledged; reference unchanged; see /sentinel')
     state = 'PASS' if value == 'matches approved baseline' else 'ATTENTION' if value in ('not approved', 'drift') else 'UNKNOWN'
     return status_line('Baseline', state, {'not approved': 'NOT APPROVED', 'drift': 'CHANGE DETECTED',
                        'matches approved baseline': 'matches approved state'}.get(value, 'inspection unavailable'))
@@ -335,6 +344,8 @@ def report_profile(job):
             return 'INCIDENT', 'CRITICAL', 'Investigate affected processes and host resources. Sentinel has taken no corrective action.'
         if key.startswith(('dns:', 'ip:')):
             return 'CONTACT', 'WARNING', 'Verify the destination against expected activity. DNS correlation is limited; compromise is not established.'
+        if key.startswith('incident:'):
+            return 'CHANGE', ('WARNING' if job.get('incident_state', 'detected') == 'detected' else 'NOTICE'), 'Review the change using its /sentinel investigate command; approve only if expected.'
         if key.startswith('drift:'):
             return 'CHANGE', 'WARNING', 'Verify the change locally. Approve a new baseline only after review.'
         if key.startswith(('tool:', 'packages:', 'package-inventory:')):
@@ -342,7 +353,7 @@ def report_profile(job):
         if key == 'health:reboot-required':
             return 'HEALTH', 'WARNING', 'Schedule and perform a reboot manually when appropriate.'
         if key.startswith('baseline:'):
-            return 'READINESS', 'WARNING', 'Review the local --baseline inventory, then approve its digest if expected.'
+            return 'READINESS', 'WARNING', 'Use /baseline review, then approve its digest if expected.'
         if key.startswith(('collector:', 'delivery:')):
             return 'READINESS', 'WARNING', 'Investigate the affected monitoring or delivery component; coverage may be incomplete.'
         return 'ALERT', 'WARNING', 'Review the finding and investigate unexpected activity. No automatic remediation.'
@@ -351,7 +362,7 @@ def report_profile(job):
               '/health': 'HEALTH', '/network': 'CONTACT', '/listeners': 'LISTENERS',
               '/baseline': 'BASELINE', '/processes': 'PROCESS STATE',
               '/updates': 'ACTIVITY', '/recent': 'EVENT LOG', '/known': 'KNOWN DOMAINS',
-              '/help': 'COMMAND GUIDE', '/management': 'MANAGEMENT IPs'}.get(command, 'COMMAND ACK')
+              '/sentinel': 'CHANGE RECORD', '/help': 'COMMAND GUIDE', '/management': 'MANAGEMENT IPs'}.get(command, 'COMMAND ACK')
     # Do not confuse receipt of an acknowledgement with proof of host readiness.
     text = job.get('text', '')
     commands = set(HELP.replace('\n', ' ').split())
@@ -371,7 +382,7 @@ def report_profile(job):
 def telegram_report(host, job):
     report, severity, action = report_profile(job)
     when = dt.datetime.fromtimestamp(job['created'], dt.timezone.utc)
-    identifier = re.sub('[^a-zA-Z0-9]', '', str(job.get('id', '')))[:8].upper() or 'UNASSIGNED'
+    identifier = re.sub('[^a-zA-Z0-9]', '', str(job.get('reference') or job.get('id', '')))[:8].upper() or 'UNASSIGNED'
     subject = report_text(host).replace('\n', ' ')[:64]
     body = report_text(job.get('text', '')) or 'No observations available.'
     # Use colour for exceptions; healthy observations remain easy to scan.
@@ -524,7 +535,12 @@ class Telegram(threading.Thread):
             return
         job = min(eligible, key=lambda j: (j['priority'], j['created']))
         outcome = None
-        if job['anomaly'] and (now < self.mute_until or (now < self.maintenance_until and job['key'].startswith(('process:', 'gunbot:')))):
+        record = getattr(self, 'incidents', {}).get(job.get('key', '').removeprefix('incident:')) if job.get('key', '').startswith('incident:') else None
+        if record:
+            job.update(text=incidents.render(record), incident_state=record['state'])
+        if job.get('key', '').startswith('incident:') and hasattr(self, 'incidents') and (not record or record['state'] in ('acknowledged', 'approved', 'resolved')):
+            outcome = 'muted'
+        elif job['anomaly'] and (now < self.mute_until or (now < self.maintenance_until and job['key'].startswith(('process:', 'gunbot:')))):
             outcome = 'muted'
         elif not job['anomaly'] and now - job['created'] > 300:
             outcome = 'expired'
@@ -780,7 +796,7 @@ class Sentinel:
         self.dirty = True
         if key in self.s['pending'] or (e['settled'] and (once or now - e['settled'] < self.cfg['alert_cooldown_minutes'] * 60)):
             return
-        message = f"{self.cfg['server_name']} - {text}\nFirst seen: {stamp(e['first'])}\nCount: {e['count']}"
+        message = text if key.startswith('incident:') else f"{self.cfg['server_name']} - {text}\nFirst seen: {stamp(e['first'])}\nCount: {e['count']}"
         self.s['recent'] = (self.s['recent'] + [f'{stamp(now)} {message[:800]}'])[-100:]
         if now < self.s['mute_until'] or (now < self.s['maintenance_until'] and key.startswith(('process:', 'gunbot:'))):
             # Intentional mute is distinct from a failed delivery; do not replay muted events.
@@ -816,6 +832,10 @@ class Sentinel:
                 if identity in self.inflight or len(rate) >= 5:
                     continue
                 job = dict(item, key=key, chat=chat, anomaly=True)
+                if key.startswith('incident:'):
+                    record = self.s['incidents'].get(key.split(':', 1)[1])
+                    if record:
+                        job.update(text=incidents.render(record), incident_state=record['state'])
                 if put(self.outgoing, job):
                     rate.append(now)
                     self.inflight.add(identity)
@@ -1031,12 +1051,7 @@ class Sentinel:
         baseline = host.get('baseline', {})
         if baseline.get('status') == 'not approved':
             self.event('baseline:missing', 'Security baseline needs administrator review; use /baseline review.')
-        for change in baseline.get('changes', []):
-            name = change['name']
-            category = 'UFW DRIFT' if name.startswith(('/etc/ufw/', '/etc/default/ufw')) else (
-                'LISTENER' if change['kind'] == 'listeners' else 'SECURITY FILE')
-            self.event('drift:' + checks.digest((change['kind'], name, change['fingerprint'])),
-                       f"{category}: {change['change']}\n{name}\nCompared with the approved baseline; no automatic approval or remediation.")
+        incidents.observe(self, now)
         for identity, item in host.get('tools', {}).items():
             if identity not in self.s['seen_tools']:
                 self.event('tool:' + checks.digest(identity),
@@ -1087,7 +1102,7 @@ class Sentinel:
                   f'Gunbot instances: {len(instance_roots(self.procs))} / expected {self.cfg["expected_gunbot_instances"]}',
                   f'Matching Gunbot processes: {len(self.procs)}',
                   f'Alerts: {len(self.s["pending"])} pending · {self.s["delivery_gaps"]} recorded delivery gaps',
-                  baseline_report(self.host.get('baseline', {}).get('status')),
+                  baseline_report('acknowledged drift' if incidents.all_reviewed(self) else self.host.get('baseline', {}).get('status')),
                   reboot_report(self.host.get('reboot_required')),
                   '\nMONITORING', self.monitoring_summary(),
                   f'DNS last observed: {stamp(self.last_dns) if self.last_dns else "none this run"}',
@@ -1129,8 +1144,10 @@ class Sentinel:
             if response.startswith(('Baseline approved', 'Baseline review')):
                 return ''
             baseline = self.host.get('baseline', {}).get('status')
+            if baseline == 'drift' and incidents.all_reviewed(self):
+                return ''
             return {'not approved': 'Use /baseline review, then /baseline approve DIGEST only if the inventory is expected.',
-                    'drift': 'Investigate the listed changes before approving new baseline state.',
+                    'drift': 'Use /sentinel to investigate or approve individual changes.',
                     'matches approved baseline': ''}.get(baseline, 'Restore baseline inspection; check Sentinel service logs.')
         if 'State write/read: FAIL' in response:
             actions.append('Restore access to Sentinel state storage; inspect ownership and free space.')
@@ -1145,9 +1162,9 @@ class Sentinel:
         baseline = self.host.get('baseline', {}).get('status')
         if baseline == 'not approved':
             actions.append('Use /baseline review, then /baseline approve DIGEST only if the inventory is expected.')
-        elif baseline == 'drift':
-            actions.append('Investigate baseline changes with /baseline before approving new state.')
-        elif baseline != 'matches approved baseline':
+        elif baseline == 'drift' and not incidents.all_reviewed(self):
+            actions.append('Use /sentinel to investigate or approve individual changes.')
+        elif baseline not in ('matches approved baseline', 'drift'):
             actions.append('Restore baseline inspection; review /baseline and service logs.')
         if len(instance_roots(self.procs)) != self.cfg['expected_gunbot_instances']:
             actions.append('Verify missing/extra Gunbot process families against the expected instance count.')
@@ -1212,6 +1229,8 @@ class Sentinel:
             return HELP
         cmd = parts[0].split('@')[0]
         args = parts[1:]
+        if cmd == '/sentinel':
+            return incidents.command(self, args, actor, chat)
         if cmd == '/baseline':
             return baselines.command(self, args, actor, chat)
         if cmd == '/management':
@@ -1315,7 +1334,7 @@ class Sentinel:
                     f"Alerts: {len(self.s['pending'])} pending · {self.s['delivery_gaps']} recorded gaps\n"
                     f"Notifications: {'MUTED' if time.time() < self.s['mute_until'] else 'ENABLED'} · maintenance: {'ACTIVE' if time.time() < self.s['maintenance_until'] else 'OFF'}\n"
                     f"Last check: {stamp(self.checked) if self.checked else 'not yet sampled'}\n\n"
-                    f"{baseline_report(self.host.get('baseline', {}).get('status'))}\n"
+                    f"{baseline_report('acknowledged drift' if incidents.all_reviewed(self) else self.host.get('baseline', {}).get('status'))}\n"
                     f"{reboot_report(self.host.get('reboot_required'))}\n\nMONITORING\n{self.monitoring_summary()}")
         return HELP
 
@@ -1465,9 +1484,10 @@ def audit_action(app, message, update_id):
     text = message.get('text', '')
     cmd = text.split()[0].split('@')[0] if isinstance(text, str) and text.split() else ''
     management_change = cmd == '/management' and len(text.split()) > 1 and text.split()[1] in ('add', 'remove')
+    incident_change = cmd == '/sentinel' and len(text.split()) > 1 and text.split()[1] in ('acknowledge', 'approve')
     baseline_change = cmd == '/baseline' and len(text.split()) > 1 and text.split()[1] == 'approve'
-    mutation = baseline_change or cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change
-    before = {'approved_baseline': app.s['approved_baseline'], 'known_management_ips': list(app.cfg['known_management_ips']), 'known_domains': list(app.cfg['known_domains']),
+    mutation = incident_change or baseline_change or cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change
+    before = {'incidents': json.dumps(app.s['incidents'], sort_keys=True), 'approved_baseline': app.s['approved_baseline'], 'known_management_ips': list(app.cfg['known_management_ips']), 'known_domains': list(app.cfg['known_domains']),
               'known_domain_suffixes': list(app.cfg['known_domain_suffixes']), 'mute_until': app.s['mute_until'], 'maintenance_until': app.s['maintenance_until']}
     try:
         response = app.command(text, actor=message['from']['id'], chat=message['chat']['id'])
@@ -1489,6 +1509,8 @@ def audit_action(app, message, update_id):
                 target = domain(text.split()[1], wildcard=True)
             except ValueError:
                 pass
+        if incident_change and len(text.split()) == 3 and re.fullmatch(r'[A-Fa-f0-9]{8}', text.split()[2]):
+            target = text.split()[2].upper()
         if baseline_change and len(text.split()) == 3 and re.fullmatch(r'[a-f0-9]{64}', text.split()[2]):
             target = text.split()[2]
         if management_change and len(text.split()) == 3:
@@ -1496,15 +1518,15 @@ def audit_action(app, message, update_id):
                 target = str(ipaddress.ip_network(text.split()[2], strict=False))
             except ValueError:
                 pass
-        changed = (before['approved_baseline'] != app.s['approved_baseline'] or before['known_management_ips'] != app.cfg['known_management_ips'] or before['known_domains'] != app.cfg['known_domains'] or
+        changed = (before['incidents'] != json.dumps(app.s['incidents'], sort_keys=True) or before['approved_baseline'] != app.s['approved_baseline'] or before['known_management_ips'] != app.cfg['known_management_ips'] or before['known_domains'] != app.cfg['known_domains'] or
                    before['known_domain_suffixes'] != app.cfg['known_domain_suffixes'] or
                    before['mute_until'] != app.s['mute_until'] or before['maintenance_until'] != app.s['maintenance_until'])
         LOG.info('AUDIT %s', json.dumps({'at': time.time(), 'actor': message['from']['id'],
                  'chat': message['chat']['id'], 'update': update_id, 'action': cmd,
-                 'target': target, 'changed': changed, 'management_operation': text.split()[1] if management_change else None, 'mute_before': before['mute_until'],
+                 'target': target, 'changed': changed, 'management_operation': text.split()[1] if management_change else None, 'incident_operation': text.split()[1] if incident_change else None, 'mute_before': before['mute_until'],
                  'mute_after': app.s['mute_until'], 'maintenance_before': before['maintenance_until'],
                  'maintenance_after': app.s['maintenance_until'], 'outcome': 'applied' if response.startswith(
-                     ('Baseline approved', 'Sentinel domain rules updated', 'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
+                     ('Change approved', 'Change acknowledged', 'Baseline approved', 'Sentinel domain rules updated', 'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
     return response
 
 
@@ -1525,7 +1547,7 @@ def main():
         if sys.platform != 'linux' or os.geteuid() != 0:
             raise ValueError('Baseline administration requires local root on Linux')
         current = checks.inventory()
-        fingerprint = checks.digest(current)
+        fingerprint = checks.inventory_digest(current)
         if args.accept_baseline:
             if args.accept_baseline != fingerprint:
                 raise ValueError('Inventory changed or digest does not match; inspect --baseline again')
@@ -1577,6 +1599,7 @@ def main():
     telegram = Telegram(incoming, outgoing, stop, cfg['runtime']['offset'], receipts)
     app = Sentinel(cfg, args.config, outgoing, telegram.chats)
     app.observation = {}
+    telegram.incidents = app.s['incidents']
     telegram.server_name = cfg['server_name']
     telegram.mute_until = app.s['mute_until']
     telegram.maintenance_until = app.s['maintenance_until']
@@ -1635,7 +1658,9 @@ def main():
                 telegram.mute_until = app.s['mute_until']
                 telegram.maintenance_until = app.s['maintenance_until']
                 command = message.get('text', '').strip().split()[0].split('@')[0] if message.get('text', '').strip() else '/help'
-                put(outgoing, {'command': command, 'attention': app.report_attention(command, response), 'action': app.report_actions(command, response), 'key': 'selftest' if message.get('text', '').strip().split('@')[0] == '/selftest' else '', 'id': uuid.uuid4().hex, 'chat': message['chat']['id'],
+                command_parts = message.get('text', '').split()
+                reference = command_parts[2].upper() if command == '/sentinel' and len(command_parts) == 3 and command_parts[2].upper() in app.s['incidents'] else None
+                put(outgoing, {'reference': reference, 'command': command, 'attention': app.report_attention(command, response), 'action': app.report_actions(command, response), 'key': 'selftest' if message.get('text', '').strip().split('@')[0] == '/selftest' else '', 'id': uuid.uuid4().hex, 'chat': message['chat']['id'],
                               'text': response, 'created': now, 'priority': 0, 'anomaly': False})
             if mono >= next_dispatch:
                 if app.dirty:

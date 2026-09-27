@@ -264,7 +264,7 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('gunbot:count', self.app.s['pending'])
 
     def test_host_drift_reboot_tools_and_package_deduplication(self):
-        host = {'baseline': {'changes': [{'kind': 'files', 'name': '/etc/ufw/user.rules', 'fingerprint': 'x', 'change': 'changed'}]},
+        host = {'baseline': {'status': 'drift', 'changes': [{'kind': 'files', 'name': '/etc/ufw/user.rules', 'fingerprint': 'x', 'change': 'changed'}]},
                 'tools': {'boot:1:2': {'tool': 'npm', 'pid': 1, 'uid': 1000}},
                 'package_inventory': {'sha256': 'a'}, 'reboot_required': True, 'clock_sync': 'no'}
         self.app.observe_host(host)
@@ -274,7 +274,7 @@ class SentinelTests(unittest.TestCase):
         tool = next(v for k, v in self.app.s['events'].items() if k.startswith('tool:'))
         self.assertEqual(tool['count'], 1)
         self.assertIn('health:reboot-required', self.app.s['pending'])
-        self.assertTrue(any('UFW DRIFT' in x for x in self.app.s['recent']))
+        self.assertTrue(any('SECURITY FILE' in x for x in self.app.s['recent']))
         host['package_inventory'] = {'sha256': 'b'}
         self.app.observe_host(host)
         self.assertTrue(any(k.startswith('package-inventory:') for k in self.app.s['pending']))

@@ -68,7 +68,7 @@ except ValueError:
     sys.exit('Invalid Telegram credentials or ID lists; see sentinel.env.example')
 PY
 fi
-for target in /var/lib/sentinel/sentinel.json /etc/sentinel/sentinel.env /opt/sentinel/sentinel.py /opt/sentinel/sentinel_checks.py /opt/sentinel/sentinel_whois.py /opt/sentinel/sentinel_baseline.py /opt/sentinel/uninstall.sh /etc/systemd/system/sentinel.service; do
+for target in /var/lib/sentinel/sentinel.json /etc/sentinel/sentinel.env /opt/sentinel/sentinel.py /opt/sentinel/sentinel_checks.py /opt/sentinel/sentinel_whois.py /opt/sentinel/sentinel_baseline.py /opt/sentinel/sentinel_incidents.py /opt/sentinel/uninstall.sh /etc/systemd/system/sentinel.service; do
     [[ ! -L "$target" ]] || { echo "Refusing symlink: $target" >&2; exit 1; }
 done
 # Abort on a failed stop; never replace a running application.
@@ -100,7 +100,7 @@ elif [[ ! -f /etc/sentinel/account-created ]]; then
     exit 1
 fi
 /usr/bin/systemd-analyze verify sentinel.service
-install -o root -g root -m 0644 sentinel.py sentinel_checks.py sentinel_whois.py sentinel_baseline.py /opt/sentinel/
+install -o root -g root -m 0644 sentinel.py sentinel_checks.py sentinel_whois.py sentinel_baseline.py sentinel_incidents.py /opt/sentinel/
 install -o root -g root -m 0755 uninstall.sh /opt/sentinel/uninstall.sh
 install -o root -g root -m 0644 sentinel.service /etc/systemd/system/sentinel.service
 chown root:root /etc/sentinel/sentinel.env

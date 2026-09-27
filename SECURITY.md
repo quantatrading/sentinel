@@ -8,7 +8,9 @@ system, a complete audit archive or a security certification. See the
 
 Telegram receives report content including the configured server label, observed
 domains, IP addresses, usernames and process/security metadata. Authorised users
-can change rules, mute alerts and approve a security baseline. Telegram baseline
+can change rules, mute alerts, acknowledge security changes and approve either
+a whole baseline or an individual difference. Scoped approval preserves other
+differences; acknowledgement does not change the reference. Telegram baseline
 approvals are stored in service-owned state and can be replaced by any authorised
 user. A compromised operator or service account can alter this reference; it is
 not a root-protected trust anchor. Reviews disclose file paths, hashes, modes,

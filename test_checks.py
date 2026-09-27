@@ -109,6 +109,7 @@ class CheckTests(unittest.TestCase):
             listeners, details, tools = c.host_processes()
         self.assertIn('tcp 0.0.0.0:22', listeners)
         self.assertEqual(details[0]['pid'], 42)
+        self.assertTrue(any('curl PID 42 UID' in x for x in details[0]['processes']))
         self.assertEqual(tools['boot-id:42:999']['tool'], 'curl')
 
     def test_clock_status_is_not_assumed(self):
