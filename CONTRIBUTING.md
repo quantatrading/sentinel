@@ -54,10 +54,10 @@ Create a local installation package after regenerating and reviewing the manifes
 
 ```bash
 python3 release.py --check
-python3 release.py --build --tag v0.3.15
+python3 release.py --build --tag v0.3.16
 ```
 
-The output is `dist/sentinel-0.3.15.tar.gz` and its `.sha256` file. Only files in
+The output is `dist/sentinel-0.3.16.tar.gz` and its `.sha256` file. Only files in
 `FILES` plus `SHA256SUMS` enter the archive; generated caches and local files are
 excluded. Archive ownership, timestamps and modes are normalized; installers
 remain executable. The build fails if a file changed since manifest generation
@@ -71,8 +71,8 @@ To publish a new version:
 4. Create and push the matching tag, for example:
 
    ```bash
-   git tag -a v0.3.15 -m "Sentinel 0.3.15"
-   git push origin v0.3.15
+   git tag -a v0.3.16 -m "Sentinel 0.3.16"
+   git push origin v0.3.16
    ```
 
 The **Release** GitHub Actions workflow runs on `v*` tags. It runs tests on

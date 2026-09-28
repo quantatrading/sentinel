@@ -60,6 +60,26 @@ into a public issue.
 | Service stops safely | Use the logged error type, errno and code location; exception text is deliberately hidden to protect credentials |
 | Start limit reached | Correct the cause, then `sudo systemctl reset-failed sentinel` and `sudo systemctl start sentinel` |
 
+## Host checks unavailable
+
+`listeners_tools` covers the system listener/owner inventory and sampled package
+or download-tool processes. `security_files` covers hashing the selected security
+files. Baseline comparison needs both inventories.
+
+In 0.3.15 and earlier a listener failure also labelled `security_files` unavailable,
+even when hashing succeeded. From 0.3.16, each check reports its own health and
+baseline comparison is marked blocked by the missing input. Send `/health` for
+the current status and the safe reason in a failed check. A warning's historical
+first-seen timestamp and count do not establish uninterrupted failure.
+
+Permission failures, inspection limits, files changing during hashing and invalid
+inspection data require different remedies. Do not disable the service sandbox,
+skip inaccessible processes or approve a new baseline to silence a failure.
+Missing observations cannot establish whether a security change occurred.
+For deeper diagnosis, use `sudo journalctl -u sentinel -n 50 --no-pager`; redact
+host details before sharing. The safe diagnostic reason excludes raw exception
+text, credentials and filesystem paths.
+
 ## Upgrade, backup and rollback
 
 Before upgrading, stop Sentinel and take a protected backup of

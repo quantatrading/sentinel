@@ -123,6 +123,19 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('⚪', s.clock_report('unknown'))
         self.assertIn('🟠', s.baseline_report('not approved'))
 
+    def test_host_failure_report_explains_reason_without_cascading_file_alarm(self):
+        self.app.observe_host({'health': {'listeners_tools': 'unavailable', 'security_files': 'ok (hashed every 60s)',
+                                         'baseline': 'blocked (requires listener inventory)'},
+                               'errors': {'listeners_tools': 'FD inspection limit exceeded'},
+                               'baseline': {'status': 'unavailable'}, 'clock_sync': 'yes'})
+        pending = self.app.s['pending']
+        self.assertIn('Reason: FD inspection limit exceeded', pending['collector:listeners_tools']['text'])
+        self.assertIn('baseline comparison is paused', pending['collector:listeners_tools']['text'])
+        self.assertNotIn('collector:security_files', pending)
+        self.assertNotIn('collector:baseline', pending)
+        self.assertIn('FD inspection limit exceeded', self.app.command('/health'))
+        self.assertIn('changes acknowledged', s.baseline_report('acknowledged drift'))
+
     def test_readiness_actions_match_actual_outstanding_findings(self):
         self.app.observation = {'at': time.time()}
         self.app.health = {'dns': 'running (coverage limited)', 'telegram': 'ok'}

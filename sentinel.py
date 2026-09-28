@@ -38,7 +38,7 @@ import sentinel_incidents as incidents
 LOG = logging.getLogger('sentinel')
 MAX_STATE = 4 * 1024 * 1024
 LIMIT = 2000
-VERSION = '0.3.15'
+VERSION = '0.3.16'
 MAX_PENDING = 200
 HELP = """SENTINEL COMMAND GUIDE
 Purpose: inspect host security, monitoring readiness and Gunbot activity.
@@ -299,7 +299,7 @@ def status_line(label, status, detail=''):
 
 def check_lines(health):
     names = {'listeners_tools': 'Listeners / tool detection', 'package_inventory': 'Package inventory',
-             'package_log': 'Package log', 'security_files': 'Security files', 'dns': 'DNS monitor',
+             'package_log': 'Package log', 'baseline': 'Baseline comparison', 'security_files': 'Security files', 'dns': 'DNS monitor',
              'ssh': 'SSH journal', 'kernel': 'Kernel journal', 'telegram': 'Telegram polling',
              'delivery': 'Telegram delivery', 'processes': 'Process inspection', 'resources': 'Host resources'}
     lines = []
@@ -328,7 +328,7 @@ def reboot_report(value):
 
 def baseline_report(value):
     if value == 'acknowledged drift':
-        return status_line('Baseline', 'INFO', 'changes acknowledged; reference unchanged; see /sentinel')
+        return status_line('Baseline', 'RUNNING', 'changes acknowledged; reference unchanged; see /sentinel')
     state = 'PASS' if value == 'matches approved baseline' else 'ATTENTION' if value in ('not approved', 'drift') else 'UNKNOWN'
     return status_line('Baseline', state, {'not approved': 'NOT APPROVED', 'drift': 'CHANGE DETECTED',
                        'matches approved baseline': 'matches approved state'}.get(value, 'inspection unavailable'))
@@ -1044,10 +1044,15 @@ class Sentinel:
         host = baselines.apply(self, host)
         self.host = host
         now = time.time()
-        self.health.update(host.get('health', {}))
+        self.health.update({name: status + (': ' + host['errors'][name] if name in host.get('errors', {}) else '')
+                            for name, status in host.get('health', {}).items()})
         for name, status in host.get('health', {}).items():
             if status == 'unavailable':
-                self.event('collector:' + name, 'Host check unavailable: ' + name)
+                detail = host.get('errors', {}).get(name, 'Reason not reported by collector')
+                impact = {'listeners_tools': 'Listener ownership and tool observations unavailable; baseline comparison is paused.',
+                          'security_files': 'Security file hashing unavailable; baseline comparison is paused.',
+                          'baseline': 'Baseline comparison unavailable; file/listener checks are reported separately.'}.get(name, 'This monitoring check is incomplete.')
+                self.event('collector:' + name, 'Host check unavailable: ' + name + '\nReason: ' + detail + '\nImpact: ' + impact)
         baseline = host.get('baseline', {})
         if baseline.get('status') == 'not approved':
             self.event('baseline:missing', 'Security baseline needs administrator review; use /baseline review.')

@@ -307,6 +307,37 @@ class PackageLog:
         return results
 
 
+SAFE_FAILURES = {
+    'Unsupported security file type', 'Unsupported/oversize security file',
+    'File grew beyond limit', 'File changed during hashing',
+    'Security inventory limit exceeded', 'Security directory depth exceeded',
+    'Security inventory byte limit exceeded', 'Listener limit exceeded',
+    'Tool process limit exceeded', 'FD inspection limit exceeded',
+    'Unsafe baseline file', 'Baseline checksum mismatch',
+    'Oversize dpkg log record; inspection incomplete',
+}
+
+
+def failure_reason(error):
+    """Only fixed explanations and numeric errno; never paths or exception text."""
+    if type(error) is ValueError and len(error.args) == 1 and isinstance(error.args[0], str) and error.args[0] in SAFE_FAILURES:
+        return error.args[0]
+    if isinstance(error, PermissionError):
+        reason = 'Permission denied during inspection'
+    elif isinstance(error, FileNotFoundError):
+        reason = 'File disappeared or required file is missing'
+    elif isinstance(error, ProcessLookupError):
+        reason = 'Process exited during inspection'
+    elif isinstance(error, OSError):
+        reason = 'Operating-system read failed'
+    elif isinstance(error, (ValueError, IndexError, KeyError, TypeError)):
+        reason = 'Unexpected or invalid inspection data'
+    else:
+        reason = 'Inspection failed'
+    number = getattr(error, 'errno', None)
+    return reason + (f' (errno {number})' if type(number) is int else '')
+
+
 class HostChecks:
     def __init__(self):
         self.packages = PackageLog()
@@ -314,41 +345,54 @@ class HostChecks:
         self.slow = {}
 
     def sample(self):
-        result = {'health': {}}
+        result = {'health': {}, 'errors': {}}
         try:
             listeners, display, tools = host_processes()
             result.update(listeners=listeners, listener_details=display, tools=tools)
             result['health']['listeners_tools'] = 'ok'
-        except (OSError, ValueError, IndexError):
+        except (OSError, ValueError, IndexError) as error:
             listeners = None
             result['health']['listeners_tools'] = 'unavailable'
+            result['errors']['listeners_tools'] = failure_reason(error)
         try:
             result['packages'] = self.packages.read()
             result['health']['package_log'] = 'ok'
-        except (OSError, ValueError):
+        except (OSError, ValueError) as error:
             result['health']['package_log'] = 'unavailable'
+            result['errors']['package_log'] = failure_reason(error)
         if time.monotonic() >= self.next_slow:
             self.slow = system_status()
             try:
                 self.slow['package_inventory'] = fingerprint(Path('/var/lib/dpkg/status'), 32 * 1024 * 1024)
-            except (OSError, ValueError):
-                self.slow['package_inventory'] = {'error': 'unavailable'}
+            except (OSError, ValueError) as error:
+                self.slow['package_inventory'] = {'error': failure_reason(error)}
             try:
                 self.slow['files'] = security_files()
                 self.slow['inventory_at'] = time.time()
-            except (OSError, ValueError):
-                self.slow['file_error'] = 'Security inventory incomplete'
+            except (OSError, ValueError) as error:
+                self.slow['file_error'] = failure_reason(error)
             self.next_slow = time.monotonic() + 60
         result.update({k: v for k, v in self.slow.items() if k != 'files'})
-        result['health']['package_inventory'] = 'ok' if 'sha256' in self.slow.get('package_inventory', {}) else 'unavailable'
-        try:
-            if listeners is None or 'files' not in self.slow:
-                raise ValueError('Inventory incomplete')
-            result['baseline_inventory'] = {'files': self.slow['files'], 'listeners': listeners,
-                                            'listener_processes': listener_processes(display)}
-            result['baseline'] = baseline_compare(result['baseline_inventory'])
-            result['health']['security_files'] = 'ok (hashed every 60s)'
-        except (OSError, ValueError, KeyError, TypeError):
+        package = self.slow.get('package_inventory', {})
+        result['health']['package_inventory'] = 'ok' if 'sha256' in package else 'unavailable'
+        if 'sha256' not in package:
+            result['errors']['package_inventory'] = package.get('error', 'Inventory unavailable')
+        files_ok = 'files' in self.slow
+        result['health']['security_files'] = 'ok (hashed every 60s)' if files_ok else 'unavailable'
+        if not files_ok:
+            result['errors']['security_files'] = self.slow.get('file_error', 'Security inventory incomplete')
+        if listeners is None or not files_ok:
+            missing = ', '.join(name for name, ready in (('listener inventory', listeners is not None), ('security file inventory', files_ok)) if not ready)
             result['baseline'] = {'status': 'unavailable', 'changes': []}
-            result['health']['security_files'] = 'unavailable'
+            result['health']['baseline'] = 'blocked (requires ' + missing + ')'
+        else:
+            try:
+                result['baseline_inventory'] = {'files': self.slow['files'], 'listeners': listeners,
+                                                'listener_processes': listener_processes(display)}
+                result['baseline'] = baseline_compare(result['baseline_inventory'])
+                result['health']['baseline'] = 'ok'
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                result['baseline'] = {'status': 'unavailable', 'changes': []}
+                result['health']['baseline'] = 'unavailable'
+                result['errors']['baseline'] = failure_reason(error)
         return result

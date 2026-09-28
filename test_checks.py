@@ -118,6 +118,50 @@ class CheckTests(unittest.TestCase):
         with patch.object(c.subprocess, 'run', side_effect=OSError):
             self.assertEqual(c.system_status()['clock_sync'], 'unknown')
 
+    def test_listener_failure_does_not_claim_file_hashing_failed(self):
+        host = c.HostChecks()
+        with patch.object(c, 'host_processes', side_effect=PermissionError(13, 'private detail')), \
+             patch.object(c, 'security_files', return_value={}), \
+             patch.object(c, 'system_status', return_value={}), \
+             patch.object(host.packages, 'read', return_value=[]), \
+             patch.object(c, 'fingerprint', return_value={'sha256': 'a' * 64}), \
+             patch.object(c, 'baseline_compare') as compare:
+            result = host.sample()
+        self.assertEqual(result['health']['listeners_tools'], 'unavailable')
+        self.assertTrue(result['health']['security_files'].startswith('ok'))
+        self.assertEqual(result['health']['baseline'], 'blocked (requires listener inventory)')
+        self.assertEqual(result['errors']['listeners_tools'], 'Permission denied during inspection (errno 13)')
+        self.assertNotIn('security_files', result['errors'])
+        self.assertNotIn('baseline_inventory', result)
+        compare.assert_not_called()
+
+    def test_file_and_baseline_failures_are_independent(self):
+        for file_failure in (True, False):
+            with self.subTest(file_failure=file_failure):
+                host = c.HostChecks()
+                with patch.object(c, 'host_processes', return_value=({}, [], {})), \
+                     patch.object(c, 'security_files', side_effect=ValueError('File changed during hashing') if file_failure else None, return_value={}), \
+                     patch.object(c, 'system_status', return_value={}), \
+                     patch.object(host.packages, 'read', return_value=[]), \
+                     patch.object(c, 'fingerprint', return_value={'sha256': 'a' * 64}), \
+                     patch.object(c, 'baseline_compare', side_effect=ValueError('Unsafe baseline file')):
+                    result = host.sample()
+                self.assertEqual(result['health']['listeners_tools'], 'ok')
+                if file_failure:
+                    self.assertEqual(result['errors']['security_files'], 'File changed during hashing')
+                    self.assertEqual(result['health']['baseline'], 'blocked (requires security file inventory)')
+                else:
+                    self.assertTrue(result['health']['security_files'].startswith('ok'))
+                    self.assertEqual(result['health']['baseline'], 'unavailable')
+                    self.assertEqual(result['errors']['baseline'], 'Unsafe baseline file')
+                self.assertEqual(result['baseline']['status'], 'unavailable')
+
+    def test_failure_reasons_never_expose_exception_content(self):
+        secret = 'PRIVATE_TOKEN_AND_PATH'
+        for error in (ValueError(secret), OSError(5, secret, secret), PermissionError(13, secret, secret), KeyError(secret), TypeError(secret)):
+            self.assertNotIn(secret, c.failure_reason(error))
+        self.assertEqual(c.failure_reason(ValueError('FD inspection limit exceeded')), 'FD inspection limit exceeded')
+
     def test_failed_inventory_does_not_become_approved_empty_state(self):
         host = c.HostChecks()
         with patch.object(c, 'host_processes', side_effect=PermissionError), patch.object(c, 'security_files', side_effect=PermissionError), patch.object(c, 'system_status', return_value={}), patch.object(host.packages, 'read', side_effect=OSError), patch.object(c, 'fingerprint', side_effect=OSError):
