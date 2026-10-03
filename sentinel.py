@@ -38,7 +38,7 @@ import sentinel_incidents as incidents
 LOG = logging.getLogger('sentinel')
 MAX_STATE = 4 * 1024 * 1024
 LIMIT = 2000
-VERSION = '0.3.16'
+VERSION = '0.3.17'
 MAX_PENDING = 200
 HELP = """SENTINEL COMMAND GUIDE
 Purpose: inspect host security, monitoring readiness and Gunbot activity.
@@ -160,7 +160,8 @@ def fresh():
     return {'events': {}, 'recent': [], 'processes': {}, 'mute_until': 0,
             'offset': 0, 'down': False, 'pending': {}, 'delivery_gaps': 0,
             'maintenance_until': 0, 'process_starts': [], 'tracking_started': False,
-            'incidents': {}, 'approved_baseline': None, 'count_mismatch': False, 'seen_tools': {}, 'package_digest': '', 'selftest_delivery': 0}
+            'incidents': {}, 'approved_baseline': None, 'count_mismatch': False, 'seen_tools': {}, 'package_digest': '', 'selftest_delivery': 0,
+            'last_listener_failure': None}
 
 
 def valid_runtime(s):
@@ -170,6 +171,14 @@ def valid_runtime(s):
         return False
     if not baselines.valid_approval(s['approved_baseline']):
         return False
+    failure = s['last_listener_failure']
+    if failure is not None:
+        if not isinstance(failure, dict) or set(failure) != {'at', 'reason'}:
+            return False
+        if type(failure['at']) not in (int, float) or not math.isfinite(failure['at']) or failure['at'] < 0:
+            return False
+        if not isinstance(failure['reason'], str) or len(failure['reason']) > 400:
+            return False
     for key in ('maintenance_until', 'selftest_delivery'):
         if type(s[key]) not in (int, float) or not math.isfinite(s[key]) or s[key] < 0:
             return False
@@ -1049,6 +1058,8 @@ class Sentinel:
         for name, status in host.get('health', {}).items():
             if status == 'unavailable':
                 detail = host.get('errors', {}).get(name, 'Reason not reported by collector')
+                if name == 'listeners_tools':
+                    self.s['last_listener_failure'] = {'at': now, 'reason': detail[:400]}
                 impact = {'listeners_tools': 'Listener ownership and tool observations unavailable; baseline comparison is paused.',
                           'security_files': 'Security file hashing unavailable; baseline comparison is paused.',
                           'baseline': 'Baseline comparison unavailable; file/listener checks are reported separately.'}.get(name, 'This monitoring check is incomplete.')
@@ -1297,8 +1308,11 @@ class Sentinel:
                 f"{x['protocol']} {x['ip']}:{x['port']} PID {x.get('pid', '?')} {' / '.join(x['owners'])}"
                 for x in self.host.get('listener_details', [])[:30]) or status_line('Listeners', 'RUNNING', 'no endpoints in this sample')))[:3800]
         if cmd == '/health':
+            failure = self.s['last_listener_failure']
+            historical = (f"\nLast recorded listener scan failure (historical): {stamp(failure['at'])}\n{failure['reason']}"
+                          if failure else '')
             return (f"Filesystems:\n{self.filesystem_report()}\n{clock_report(self.host.get('clock_sync'))}\n"
-                    f"{reboot_report(self.host.get('reboot_required'))}\nCollectors:\n{check_lines(self.health)}")[:3800]
+                    f"{reboot_report(self.host.get('reboot_required'))}\nCollectors:\n{check_lines(self.health)}" + historical)[:3800]
         if cmd == '/updates':
             return (f"{reboot_report(self.host.get('reboot_required'))}\n"
                     + '\n'.join(x for x in reversed(self.s['recent']) if any(t in x for t in ('PACKAGE', 'TOOL')))

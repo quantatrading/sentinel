@@ -1,17 +1,17 @@
-# Sentinel 0.3.16
+# Sentinel 0.3.17
 
 A small, passive watchdog for Ubuntu 24.04 Gunbot VPS hosts. Python standard library only. Telegram is the UI; there is no listener, web server, database, packet capture, firewall change, trading action, or remote command facility.
 
 Start with [installation](#install-on-the-vps), then read the [configuration reference](docs/configuration.md) and [operations and troubleshooting guide](docs/operations.md). Developers should read [CONTRIBUTING.md](CONTRIBUTING.md). See [SECURITY.md](SECURITY.md) for privacy and reporting guidance, and [the publication review](docs/publication-review.md) for review scope and validation.
 
-Download `sentinel-0.3.16.tar.gz` and its `.sha256` file from
+Download `sentinel-0.3.17.tar.gz` and its `.sha256` file from
 [GitHub Releases](https://github.com/quantatrading/sentinel/releases/latest).
 Place both in the same directory on your Ubuntu server:
 
 ```bash
-sha256sum --check --strict sentinel-0.3.16.tar.gz.sha256
-tar -xzf sentinel-0.3.16.tar.gz
-cd sentinel-0.3.16
+sha256sum --check --strict sentinel-0.3.17.tar.gz.sha256
+tar -xzf sentinel-0.3.17.tar.gz
+cd sentinel-0.3.17
 sha256sum --check --strict SHA256SUMS
 sudo ./install.sh
 ```
@@ -310,7 +310,7 @@ The uninstaller removes the installed software and its dedicated data. It cannot
 
 ## Release integrity and support
 
-This release identifies itself as 0.3.16 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
+This release identifies itself as 0.3.17 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
 
 For releases, run `python3 release.py` after review and tests. Publish its resulting manifest digest through an independently trusted channel. An optional `SENTINEL_EXPECTED_MANIFEST_SHA256` pin makes the installer fail on a manifest mismatch. Verify that pin/manifest using trusted tooling **before executing the installer**; a modified installer cannot be trusted to verify itself. No signing identity or third-party certification is asserted by this package.
 
@@ -397,3 +397,5 @@ Version 0.3.14 adds Telegram baseline review and approval with digest confirmati
 Version 0.3.15 introduces persistent security-change records, scoped acknowledgement/approval, and listener PID history. Unchanged baseline drift no longer produces hourly warnings.
 
 Version 0.3.16 separates security-file hashing health from listener scanning and baseline comparison. Failures include safe reason codes in alerts and `/health`. A dependent baseline check is marked blocked rather than reported as a second file-hashing failure. Incomplete scans remain unavailable.
+
+Version 0.3.17 handles descriptor-link permission errors caused by confirmed process exits. Genuine denials retain the operation, PID and FD; `/health` preserves the last listener failure after recovery. See [intermittent errno 13](docs/operations.md#intermittent-errno-13-during-listener-inspection) for the evidence and remaining diagnostic limits.

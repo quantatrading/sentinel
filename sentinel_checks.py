@@ -145,6 +145,31 @@ def tool_name(comm, process):
     return None
 
 
+class ProcessInspectionError(PermissionError):
+    """A fixed operation and numeric proc identifiers; no raw exception text."""
+
+    def __init__(self, error, operation, pid, fd=None):
+        super().__init__(error.errno, 'Process inspection denied')
+        self.context = f'{operation}; PID {int(pid)}'
+        if fd is not None:
+            self.context += f'; FD {int(fd)}'
+
+
+def process_link(process, fd):
+    try:
+        return os.readlink(fd)
+    except PermissionError:
+        # Linux proc_pid_readlink can return EACCES when its task has exited
+        # after lookup. Only tolerate a positively confirmed disappearance.
+        try:
+            process.stat()
+        except (FileNotFoundError, ProcessLookupError):
+            raise ProcessLookupError('Process exited during fd inspection') from None
+        except OSError:
+            pass  # An inconclusive recheck must not hide the original denial.
+        raise
+
+
 def host_processes():
     sockets = {}
     boot = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
@@ -165,18 +190,24 @@ def host_processes():
     for process in Path('/proc').iterdir():
         if not process.name.isdigit():
             continue
+        operation, fd_number = 'read process name', None
         try:
             comm = (process / 'comm').read_text().strip()
+            operation = 'stat process'
             uid = process.stat().st_uid
+            operation = 'read tool selector'
             found = tool_name(comm, process)
             if found:
+                operation = 'read process start time'
                 start = (process / 'stat').read_text().rsplit(')', 1)[1].split()[19]
                 tools[boot + ':' + process.name + ':' + start] = {'tool': found, 'pid': int(process.name), 'uid': uid}
                 if len(tools) > 256:
                     raise ValueError('Tool process limit exceeded')
+            operation = 'list process descriptors'
             for fd in (process / 'fd').iterdir():
+                operation, fd_number = 'read descriptor link', fd.name
                 try:
-                    target = os.readlink(fd)
+                    target = process_link(process, fd)
                     inode = target[8:-1] if target.startswith('socket:[') else None
                     if inode in sockets:
                         owner = label(comm) + ' uid=' + str(uid)
@@ -192,8 +223,11 @@ def host_processes():
                         raise ValueError('FD inspection limit exceeded')
                 except FileNotFoundError:
                     pass
+                operation, fd_number = 'list process descriptors', None
         except (FileNotFoundError, ProcessLookupError):
             continue
+        except PermissionError as error:
+            raise ProcessInspectionError(error, operation, process.name, fd_number) from None
     listeners, display = {}, []
     for entry in sockets.values():
         key = f"{entry['protocol']} {entry['ip']}:{entry['port']}"
@@ -319,7 +353,7 @@ SAFE_FAILURES = {
 
 
 def failure_reason(error):
-    """Only fixed explanations and numeric errno; never paths or exception text."""
+    """Fixed explanations and numeric proc context; never paths or raw text."""
     if type(error) is ValueError and len(error.args) == 1 and isinstance(error.args[0], str) and error.args[0] in SAFE_FAILURES:
         return error.args[0]
     if isinstance(error, PermissionError):
@@ -335,7 +369,8 @@ def failure_reason(error):
     else:
         reason = 'Inspection failed'
     number = getattr(error, 'errno', None)
-    return reason + (f' (errno {number})' if type(number) is int else '')
+    context = '; ' + error.context if isinstance(error, ProcessInspectionError) else ''
+    return reason + (f' (errno {number})' if type(number) is int else '') + context
 
 
 class HostChecks:

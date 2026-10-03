@@ -80,6 +80,33 @@ For deeper diagnosis, use `sudo journalctl -u sentinel -n 50 --no-pager`; redact
 host details before sharing. The safe diagnostic reason excludes raw exception
 text, credentials and filesystem paths.
 
+### Intermittent errno 13 during listener inspection
+
+Linux can return `EACCES` from a `/proc/PID/fd/N` link after resolving its inode
+if the process exits before the kernel checks access. Version 0.3.16 treated
+that as a failed whole-host scan. From 0.3.17, Sentinel rechecks the process
+directory after a descriptor-link permission error. Only a confirmed missing
+process is handled as normal process churn; a live process or an inconclusive
+recheck still fails the scan and blocks baseline comparison.
+
+Permission errors during per-process inspection now include the fixed operation,
+PID and, where applicable, FD number. No link targets, arguments, environment,
+or raw exception text are included. `/health` retains the last listener-scan
+failure and its timestamp after recovery and restart, separately from the current
+collector status. Pre-upgrade failures cannot acquire missing details retroactively.
+
+The exit behavior was reproduced with an isolated, unprivileged child on Ubuntu's
+`6.8.0-142-generic` kernel. Reading a pinned proc descriptor link after the child
+exited returned errno 13; looking up the now-missing pathname returned errno 2.
+This agrees with `proc_fd_access_allowed` and `proc_pid_readlink` in the
+[Linux 6.8 source](https://github.com/torvalds/linux/blob/v6.8/fs/proc/base.c#L1680-L1697).
+The affected service had the expected root collector capabilities, no systemd
+overrides and an unconfined AppArmor profile. Its old alerts contain insufficient
+evidence to attribute a particular failure to this race; this is a reproduced
+defect and a strong explanation for intermittent failures, not a captured trace
+of the historical event. There is no reason to loosen the service sandbox on
+this evidence.
+
 ## Upgrade, backup and rollback
 
 Before upgrading, stop Sentinel and take a protected backup of

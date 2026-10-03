@@ -136,6 +136,31 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('FD inspection limit exceeded', self.app.command('/health'))
         self.assertIn('changes acknowledged', s.baseline_report('acknowledged drift'))
 
+    def test_listener_failure_evidence_survives_recovery_and_state_reload(self):
+        reason = 'Permission denied during inspection (errno 13); read descriptor link; PID 42; FD 3'
+        with patch.object(s.time, 'time', return_value=10000):
+            self.app.observe_host({'health': {'listeners_tools': 'unavailable'},
+                                   'errors': {'listeners_tools': reason}, 'clock_sync': 'yes'})
+        self.app.observe_host({'health': {'listeners_tools': 'ok'}, 'clock_sync': 'yes'})
+        self.assertEqual(self.app.s['last_listener_failure'], {'at': 10000, 'reason': reason})
+        health = self.app.command('/health')
+        self.assertIn('Listeners / tool detection: PASS', health)
+        self.assertIn('Last recorded listener scan failure (historical)', health)
+        self.assertIn(reason, health)
+        s.save(self.path, self.cfg)
+        loaded = s.load(self.path)['runtime']
+        self.assertEqual(loaded['last_listener_failure'], self.app.s['last_listener_failure'])
+        self.assertTrue(s.valid_runtime(loaded))
+
+    def test_listener_failure_state_migrates_and_rejects_invalid_evidence(self):
+        del self.cfg['runtime']['last_listener_failure']
+        s.save(self.path, self.cfg)
+        self.assertIsNone(s.load(self.path)['runtime']['last_listener_failure'])
+        for invalid in ({}, {'at': float('nan'), 'reason': 'failure'}, {'at': 1, 'reason': 'x' * 401}):
+            state = s.fresh()
+            state['last_listener_failure'] = invalid
+            self.assertFalse(s.valid_runtime(state))
+
     def test_readiness_actions_match_actual_outstanding_findings(self):
         self.app.observation = {'at': time.time()}
         self.app.health = {'dns': 'running (coverage limited)', 'telegram': 'ok'}

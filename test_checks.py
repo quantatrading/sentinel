@@ -1,7 +1,10 @@
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
+import subprocess
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
@@ -93,7 +96,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(c.endpoint('0100007F:0016'), ('127.0.0.1', 22))
         self.assertEqual(c.endpoint('00000000000000000000000001000000:01BB'), ('::1', 443))
 
-    def test_host_listener_ownership_and_boot_scoped_tool_identity(self):
+    def proc_fixture(self):
         proc = self.root / 'proc'
         (proc / 'net').mkdir(parents=True)
         boot = proc / 'sys/kernel/random'
@@ -105,12 +108,96 @@ class CheckTests(unittest.TestCase):
         (process / 'fd/3').symlink_to('socket:[123]')
         (process / 'comm').write_text('curl')
         (process / 'stat').write_text('42 (curl) ' + ' '.join(['0'] * 19 + ['999']))
+        return process
+
+    def test_host_listener_ownership_and_boot_scoped_tool_identity(self):
+        self.proc_fixture()
         with patch.object(c, 'Path', side_effect=lambda path: self.root / str(path).lstrip('/')):
             listeners, details, tools = c.host_processes()
         self.assertIn('tcp 0.0.0.0:22', listeners)
         self.assertEqual(details[0]['pid'], 42)
         self.assertTrue(any('curl PID 42 UID' in x for x in details[0]['processes']))
         self.assertEqual(tools['boot-id:42:999']['tool'], 'curl')
+
+    def test_permission_error_from_exited_process_does_not_abort_scan(self):
+        process = self.proc_fixture()
+        survivor = process.parent / '43'
+        (survivor / 'fd').mkdir(parents=True)
+        (survivor / 'comm').write_text('sshd')
+        (survivor / 'fd/4').symlink_to('socket:[123]')
+        readlink = os.readlink
+
+        def exit_during_readlink(fd):
+            if fd.parent.parent == process:
+                process.rename(self.root / 'exited')
+                raise PermissionError(13, 'private detail')
+            return readlink(fd)
+
+        with patch.object(c, 'Path', side_effect=lambda path: self.root / str(path).lstrip('/')), \
+             patch.object(c.os, 'readlink', side_effect=exit_during_readlink):
+            listeners, _, _ = c.host_processes()
+        self.assertEqual(listeners['tcp 0.0.0.0:22'], ['sshd uid=' + str(survivor.stat().st_uid)])
+
+    def test_live_process_denial_still_aborts_with_safe_operation_context(self):
+        self.proc_fixture()
+        with patch.object(c, 'Path', side_effect=lambda path: self.root / str(path).lstrip('/')), \
+             patch.object(c.os, 'readlink', side_effect=PermissionError(13, 'SECRET', '/secret/path')):
+            with self.assertRaises(c.ProcessInspectionError) as raised:
+                c.host_processes()
+        self.assertEqual(c.failure_reason(raised.exception),
+                         'Permission denied during inspection (errno 13); read descriptor link; PID 42; FD 3')
+
+    def test_inconclusive_exit_recheck_preserves_original_permission_error(self):
+        for recheck_error in (PermissionError(1, 'stat denied'), OSError(5, 'read failed')):
+            process = Mock()
+            process.stat.side_effect = recheck_error
+            original = PermissionError(13, 'original')
+            with patch.object(c.os, 'readlink', side_effect=original):
+                with self.assertRaises(PermissionError) as raised:
+                    c.process_link(process, Mock())
+            self.assertIs(raised.exception, original)
+
+    def test_non_fd_permission_failure_is_not_treated_as_process_exit(self):
+        self.proc_fixture()
+        original = Path.read_text
+
+        def read_text(path, *args, **kwargs):
+            if path.name == 'comm':
+                raise PermissionError(13, 'SECRET')
+            return original(path, *args, **kwargs)
+
+        with patch.object(c, 'Path', side_effect=lambda path: self.root / str(path).lstrip('/')), \
+             patch.object(Path, 'read_text', read_text):
+            with self.assertRaises(c.ProcessInspectionError) as raised:
+                c.host_processes()
+        self.assertIn('read process name; PID 42', c.failure_reason(raised.exception))
+
+    @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'O_PATH'), 'Linux procfs required')
+    def test_real_procfs_exited_task_returns_eacces_for_resolved_link(self):
+        # Pin the proc inode to deterministically exercise the task-exit window
+        # between the kernel's path lookup and proc_pid_readlink access check.
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'], stdin=subprocess.DEVNULL)
+        descriptor = None
+        try:
+            process = Path('/proc') / str(child.pid)
+            link = process / 'fd/0'
+            descriptor = os.open(link, os.O_PATH | os.O_NOFOLLOW)
+            self.assertEqual(os.readlink('', dir_fd=descriptor), '/dev/null')
+            child.terminate()
+            child.wait(timeout=5)
+            readlink = os.readlink
+            with self.assertRaises(PermissionError) as raised:
+                readlink('', dir_fd=descriptor)
+            self.assertEqual(raised.exception.errno, 13)
+            with patch.object(c.os, 'readlink', side_effect=lambda _: readlink('', dir_fd=descriptor)):
+                with self.assertRaises(ProcessLookupError):
+                    c.process_link(process, link)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+            if descriptor is not None:
+                os.close(descriptor)
 
     def test_clock_status_is_not_assumed(self):
         with patch.object(c.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='yes\n')):
