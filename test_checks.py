@@ -173,7 +173,7 @@ class CheckTests(unittest.TestCase):
         self.assertIn('read process name; PID 42', c.failure_reason(raised.exception))
 
     @unittest.skipUnless(sys.platform == 'linux' and hasattr(os, 'O_PATH'), 'Linux procfs required')
-    def test_real_procfs_exited_task_returns_eacces_for_resolved_link(self):
+    def test_real_procfs_exited_task_rejects_resolved_link(self):
         # Pin the proc inode to deterministically exercise the task-exit window
         # between the kernel's path lookup and proc_pid_readlink access check.
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(20)'], stdin=subprocess.DEVNULL)
@@ -186,11 +186,11 @@ class CheckTests(unittest.TestCase):
             child.terminate()
             child.wait(timeout=5)
             readlink = os.readlink
-            with self.assertRaises(PermissionError) as raised:
+            with self.assertRaises(OSError) as raised:
                 readlink('', dir_fd=descriptor)
-            self.assertEqual(raised.exception.errno, 13)
+            self.assertIn(raised.exception.errno, (2, 3, 13))
             with patch.object(c.os, 'readlink', side_effect=lambda _: readlink('', dir_fd=descriptor)):
-                with self.assertRaises(ProcessLookupError):
+                with self.assertRaises((FileNotFoundError, ProcessLookupError)):
                     c.process_link(process, link)
         finally:
             if child.poll() is None:

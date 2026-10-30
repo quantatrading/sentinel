@@ -1,17 +1,17 @@
-# Sentinel 0.3.18
+# Sentinel 0.3.19
 
 A small, passive watchdog for Ubuntu 24.04 Gunbot VPS hosts. Python standard library only. Telegram is the UI; there is no listener, web server, database, packet capture, firewall change, trading action, or remote command facility.
 
 Start with [installation](#install-on-the-vps), then read the [configuration reference](docs/configuration.md) and [operations and troubleshooting guide](docs/operations.md). Developers should read [CONTRIBUTING.md](CONTRIBUTING.md). See [SECURITY.md](SECURITY.md) for privacy and reporting guidance, and [the publication review](docs/publication-review.md) for review scope and validation.
 
-Download `sentinel-0.3.18.tar.gz` and its `.sha256` file from
+Download `sentinel-0.3.19.tar.gz` and its `.sha256` file from
 [GitHub Releases](https://github.com/quantatrading/sentinel/releases/latest).
 Place both in the same directory on your Ubuntu server:
 
 ```bash
-sha256sum --check --strict sentinel-0.3.18.tar.gz.sha256
-tar -xzf sentinel-0.3.18.tar.gz
-cd sentinel-0.3.18
+sha256sum --check --strict sentinel-0.3.19.tar.gz.sha256
+tar -xzf sentinel-0.3.19.tar.gz
+cd sentinel-0.3.19
 sha256sum --check --strict SHA256SUMS
 sudo ./install.sh
 ```
@@ -311,7 +311,7 @@ The uninstaller removes the installed software and its dedicated data. It cannot
 
 ## Release integrity and support
 
-This release identifies itself as 0.3.18 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
+This release identifies itself as 0.3.19 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
 
 For releases, run `python3 release.py` after review and tests. Publish its resulting manifest digest through an independently trusted channel. An optional `SENTINEL_EXPECTED_MANIFEST_SHA256` pin makes the installer fail on a manifest mismatch. Verify that pin/manifest using trusted tooling **before executing the installer**; a modified installer cannot be trusted to verify itself. No signing identity or third-party certification is asserted by this package.
 

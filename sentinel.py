@@ -38,7 +38,7 @@ import sentinel_incidents as incidents
 LOG = logging.getLogger('sentinel')
 MAX_STATE = 4 * 1024 * 1024
 LIMIT = 2000
-VERSION = '0.3.18'
+VERSION = '0.3.19'
 MAX_PENDING = 200
 HELP = """SENTINEL COMMAND GUIDE
 Purpose: inspect host security, monitoring readiness and Gunbot activity.
