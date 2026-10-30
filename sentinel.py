@@ -45,6 +45,7 @@ Purpose: inspect host security, monitoring readiness and Gunbot activity.
 
 STATUS AND READINESS
 /status - Overall host resources, Gunbot instance/process counts and monitoring status.
+/instances [count] - Show or set required Gunbot instances (1-256).
 /selftest - Test state storage; report collector freshness, coverage and delivery status.
 /health - Disk/inode usage, clock synchronization and reboot-required status.
 /security - Saved UFW policy, SSH activity, network observations and delivery gaps.
@@ -414,6 +415,9 @@ def telegram_report(host, job):
     if job.get('anomaly') and job.get('key', '').startswith(('ip:', 'dns:')):
         section = 'NETWORK OBSERVATION'
         body = re.sub(r'^\s*NETWORK\s*\n', '', body, count=1)
+    if job.get('anomaly') and job.get('key', '').startswith('health:'):
+        section = 'HEALTH OBSERVATION'
+        body = re.sub(r'^\s*HEALTH\s*\n', '', body, count=1)
     lookup = ('\n\nWHOIS\n' + report_text(job.get('whois', 'Unavailable: registration data not received.'))) if job.get('anomaly') and job.get('key', '').startswith('ip:') else ''
     footer = lookup + f'\n\nRef: {identifier} · {when.strftime("%d %b %Y, %H:%M UTC")} · Sentinel {VERSION}'
     budget = 3800 - len((header + section + footer + '\n\n').encode('utf-16-le')) // 2
@@ -1251,6 +1255,14 @@ class Sentinel:
             return baselines.command(self, args, actor, chat)
         if cmd == '/management':
             return self.management(args)
+        if cmd == '/instances':
+            if not args:
+                return f"Required Gunbot instances: {self.cfg['expected_gunbot_instances']}\nUse /instances <count> (1-256) to change."
+            if len(args) != 1 or not re.fullmatch(r'[0-9]{1,3}', args[0]) or not 1 <= int(args[0]) <= 256:
+                return 'Invalid count. Use /instances <count> with a whole number from 1 to 256.'
+            self.cfg['expected_gunbot_instances'] = int(args[0])
+            self.dirty = True
+            return f"Required Gunbot instances updated: {int(args[0])}\nApplies on the next monitoring check."
         if cmd in ('/allow', '/remove', '/mute', '/maintenance'):
             if len(args) != 1:
                 return 'Exactly one argument required. ' + HELP
@@ -1505,8 +1517,10 @@ def audit_action(app, message, update_id):
     management_change = cmd == '/management' and len(text.split()) > 1 and text.split()[1] in ('add', 'remove')
     incident_change = cmd == '/sentinel' and len(text.split()) > 1 and text.split()[1] in ('acknowledge', 'approve')
     baseline_change = cmd == '/baseline' and len(text.split()) > 1 and text.split()[1] == 'approve'
-    mutation = incident_change or baseline_change or cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change
+    instances_change = cmd == '/instances' and len(text.split()) > 1
+    mutation = instances_change or incident_change or baseline_change or cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change
     before = {'incidents': json.dumps(app.s['incidents'], sort_keys=True), 'approved_baseline': app.s['approved_baseline'], 'known_management_ips': list(app.cfg['known_management_ips']), 'known_domains': list(app.cfg['known_domains']),
+              'expected_gunbot_instances': app.cfg['expected_gunbot_instances'],
               'known_domain_suffixes': list(app.cfg['known_domain_suffixes']), 'mute_until': app.s['mute_until'], 'maintenance_until': app.s['maintenance_until']}
     try:
         response = app.command(text, actor=message['from']['id'], chat=message['chat']['id'])
@@ -1523,6 +1537,8 @@ def audit_action(app, message, update_id):
     app.dirty = False
     if mutation:
         target = None
+        if instances_change and len(text.split()) == 2 and re.fullmatch(r'[0-9]{1,3}', text.split()[1]) and 1 <= int(text.split()[1]) <= 256:
+            target = int(text.split()[1])
         if cmd in ('/allow', '/remove') and len(text.split()) == 2:
             try:
                 target = domain(text.split()[1], wildcard=True)
@@ -1537,7 +1553,7 @@ def audit_action(app, message, update_id):
                 target = str(ipaddress.ip_network(text.split()[2], strict=False))
             except ValueError:
                 pass
-        changed = (before['incidents'] != json.dumps(app.s['incidents'], sort_keys=True) or before['approved_baseline'] != app.s['approved_baseline'] or before['known_management_ips'] != app.cfg['known_management_ips'] or before['known_domains'] != app.cfg['known_domains'] or
+        changed = (before['expected_gunbot_instances'] != app.cfg['expected_gunbot_instances'] or before['incidents'] != json.dumps(app.s['incidents'], sort_keys=True) or before['approved_baseline'] != app.s['approved_baseline'] or before['known_management_ips'] != app.cfg['known_management_ips'] or before['known_domains'] != app.cfg['known_domains'] or
                    before['known_domain_suffixes'] != app.cfg['known_domain_suffixes'] or
                    before['mute_until'] != app.s['mute_until'] or before['maintenance_until'] != app.s['maintenance_until'])
         LOG.info('AUDIT %s', json.dumps({'at': time.time(), 'actor': message['from']['id'],
@@ -1545,7 +1561,7 @@ def audit_action(app, message, update_id):
                  'target': target, 'changed': changed, 'management_operation': text.split()[1] if management_change else None, 'incident_operation': text.split()[1] if incident_change else None, 'mute_before': before['mute_until'],
                  'mute_after': app.s['mute_until'], 'maintenance_before': before['maintenance_until'],
                  'maintenance_after': app.s['maintenance_until'], 'outcome': 'applied' if response.startswith(
-                     ('Change approved', 'Change acknowledged', 'Baseline approved', 'Sentinel domain rules updated', 'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
+                     ('Required Gunbot instances updated', 'Change approved', 'Change acknowledged', 'Baseline approved', 'Sentinel domain rules updated', 'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
     return response
 
 

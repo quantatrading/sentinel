@@ -138,7 +138,7 @@ TCP listeners and bound UDP endpoints are sampled approximately every 10 seconds
 
 `npm`, `npx`, `pip`, `apt`, `apt-get`, `dpkg`, `curl` and `wget` process observations include tool, PID and UID, never URLs or full arguments. For Python/Node wrappers only the interpreter and module/script selector are read. Very short-lived, renamed or unusual wrappers may be missed, and process presence does not prove an installation or download. New dpkg install/upgrade/remove/purge records are also read, and its package database fingerprint is sampled every minute. Historical dpkg records are not replayed at startup; an offline change is detectable through a previously persisted database fingerprint, without necessarily identifying individual actions. npm/pip have no durable transaction-log coverage.
 
-Set `expected_gunbot_instances` (default 1), `monitored_paths` (default `["/"]`), `thresholds.inode_percent` (90) and `thresholds.restart_starts_10m` (5) using the stopped-service configuration procedure above. Restart-storm alerts count new sampled Gunbot identities over ten minutes; starts between process checks can be missed. Maintenance suppresses only Gunbot lifecycle notices; security, tool, resource and reboot alerts continue unless globally muted.
+Use `/instances` to view the required Gunbot count, or `/instances 2` to change it (1–256, default 1). Changes are saved before confirmation and apply on the next monitoring check. Set `monitored_paths` (default `["/"]`), `thresholds.inode_percent` (90) and `thresholds.restart_starts_10m` (5) using the stopped-service configuration procedure above. Restart-storm alerts count new sampled Gunbot identities over ten minutes; starts between process checks can be missed. Maintenance suppresses only Gunbot lifecycle notices; security, tool, resource and reboot alerts continue unless globally muted.
 
 Kernel OOM journal records alert from the time the collector starts. No deliberate OOM or restart is triggered. Clock status uses `timedatectl`'s reported synchronization state, with unknown reported as unavailable. Ubuntu's `/run/reboot-required` marker triggers a reboot-needed notice; its absence is not a universal guarantee that no restart is needed. Sentinel never reboots the server.
 
@@ -202,6 +202,7 @@ resolve a change. None of these states establishes that the server is secure.
 | `/network` | Up to 25 currently sampled connections, IP/port/PID and DNS hints |
 | `/security` | UFW saved configuration (live state unverified), SSH counts, unknown-domain/unattributed-IP counts, collector health and rate suppression |
 | `/processes` | Up to 25 processes with PID, runtime, sampled CPU, RSS and listening ports |
+| `/instances [count]` | Show or set the required Gunbot instance count (1–256); no restart required |
 | `/recent` | Recent observations with first/last/count and recent alert details, bounded to one message |
 | `/known` | Domain rules, bounded to one message |
 | `/allow api.example.com` | Add an exact domain to Sentinel only |

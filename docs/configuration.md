@@ -63,6 +63,9 @@ The `thresholds` object accepts:
 
 Use Telegram `/allow`, `/remove` and `/management` commands for routine rule
 changes. They save before acknowledgement. Rules do not modify DNS or firewalls.
+Use `/instances` to view the required Gunbot instance count, or `/instances 2`
+to set it (1–256). Changes are saved before confirmation and apply on the next
+monitoring check, without a restart.
 For other settings, stop the service to avoid racing its state writes:
 
 ```bash

@@ -74,6 +74,14 @@ class SentinelTests(unittest.TestCase):
         self.assertEqual(s.report_profile({'command': '/typo', 'text': s.HELP})[0], 'COMMAND REJECTED')
         self.assertEqual(s.report_profile({'command': '/selftest', 'attention': True})[1], 'WARNING')
 
+    def test_health_alert_has_one_observation_heading(self):
+        job = {'anomaly': True, 'key': 'health:load', 'created': 0, 'id': 'a' * 32,
+               'text': 'Example Server - ⚠️ HEALTH\nload: 4.1, threshold: 4.0\nFirst seen: 29 Oct 20:44 UTC\nCount: 30'}
+        report = s.telegram_report('Example Server', job)
+        self.assertIn('\nHEALTH OBSERVATION\nload: 4.1, threshold: 4.0\n', report)
+        self.assertNotIn('\nHEALTH\n', report)
+        self.assertIn('Count: 30', report)
+
     def test_report_truncation_preserves_action_and_handles_unicode(self):
         job = {'text': '🚀' * 5000, 'created': 0, 'id': 'b' * 32, 'command': '/recent'}
         report = s.telegram_report('host\nspoof\x00', job)
@@ -247,6 +255,25 @@ class SentinelTests(unittest.TestCase):
         self.assertIn('Example Network', report)
         self.assertNotIn('https://ipinfo', report)
         self.assertLessEqual(len(report.encode('utf-16-le')) // 2, 3800)
+
+    def test_instances_command_persists_and_audits(self):
+        self.assertIn('Required Gunbot instances: 1', self.app.command('/instances'))
+        for count in (2, 256, 1):
+            message = {'text': f'/instances@mybot {count}', 'from': {'id': 123}, 'chat': {'id': 123}}
+            with self.assertLogs(s.LOG, level='INFO') as logs:
+                response = s.audit_action(self.app, message, 1234)
+            self.assertIn(f'updated: {count}', response)
+            self.assertEqual(s.load(self.path)['expected_gunbot_instances'], count)
+            self.assertIn('"outcome": "applied"', ' '.join(logs.output))
+            self.assertIn(f'"target": {count}', ' '.join(logs.output))
+        self.assertIn('expected 1', self.app.selftest())
+
+    def test_instances_rejects_invalid_counts(self):
+        for value in ('0', '257', '-1', '1.5', 'two', '2 3', '9999999999', '٢'):
+            with self.subTest(value=value):
+                self.assertTrue(self.app.command('/instances ' + value).startswith('Invalid count'))
+                self.assertEqual(self.cfg['expected_gunbot_instances'], 1)
+        self.assertIn('/instances [count]', self.app.command('/help'))
 
     def test_management_commands_normalize_and_persist_audited_changes(self):
         self.assertIn('None configured', self.app.command('/management'))
