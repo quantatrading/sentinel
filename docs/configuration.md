@@ -42,7 +42,7 @@ Unknown fields are rejected. Numeric ranges below include both endpoints.
 | `known_domain_suffixes` | `[]` | Up to 2,000 suffixes such as `example.com`, without `*.`; matches subdomains, not the bare domain |
 | `known_management_ips` | `[]` | Up to 2,000 IPv4/IPv6 addresses or CIDRs; normalised to networks; classifies SSH sources only |
 | `expected_gunbot_instances` | `1` | Integer 1–256; matching parent/child families count as one instance |
-| `auto_approve_snap_refresh` | `false` | Boolean. Accept verified pairs of Snap mount-link changes automatically |
+| `auto_approve_snap_refresh` | `true` | Boolean. Accept verified pairs of Snap mount-link changes automatically |
 | `monitored_paths` | `["/"]` | 1–16 absolute paths, at most 256 characters each, no control characters or `..` components |
 | `alert_cooldown_minutes` | `60` | 1–10,080; repeat observation notice cooldown |
 | `check_seconds` | `30` | 10–3,600; main evaluation interval; collector sampling has its own cadence |
@@ -66,7 +66,8 @@ Use Telegram `/allow`, `/remove` and `/management` commands for routine rule
 changes. They save before acknowledgement. Rules do not modify DNS or firewalls.
 Use `/instances` to view the required Gunbot instance count, or `/instances 2`
 to set it (1–256). Changes are saved before confirmation and apply on the next
-monitoring check, without a restart.
+monitoring check, without a restart. Use `/snapapproval on` or
+`/snapapproval off` to change Snap auto-approval without restarting.
 For other settings, stop the service to avoid racing its state writes:
 
 ```bash
@@ -94,9 +95,14 @@ minutes before the inventory sample. The Telegram alert identifies the changes
 as a legitimate Snap auto-refresh, explains what Sentinel verified, and states
 whether the pair needs approval.
 
-Set `"auto_approve_snap_refresh": true` in the JSON config and restart Sentinel
-using the steps above to enable automatic approval for newly verified pairs.
-Sentinel saves the baseline update for both links together with one queued
+Snap auto-approval defaults to on. An explicit setting in an existing
+configuration is preserved during upgrades. Use `/snapapproval` to see the
+current setting, `/snapapproval off` to require manual review, or
+`/snapapproval on` to enable it again. Authorised Telegram users can change the
+setting. Sentinel saves and audits each change before replying, and the setting
+applies to newly verified pairs without a restart.
+
+With auto-approval on, Sentinel saves the baseline update for both links together with one queued
 Telegram notice confirming that both were accepted automatically. The pair
 stays available for manual review if Sentinel cannot queue the notice. A mute
 started after the notice was queued delays its dispatch. The retained record

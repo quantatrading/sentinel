@@ -68,6 +68,7 @@ class IncidentTests(unittest.TestCase):
     def test_verified_snap_pair_persists_and_accepts_both_with_one_command(self):
         now = time.time()
         old, new, change = self.snap_refresh(now)
+        self.app.cfg['auto_approve_snap_refresh'] = False
         with patch.object(inc, 'snap_history', return_value=[change]):
             self.sample(now)
         self.assertIsNone(self.app.s['approved_baseline'])
@@ -95,7 +96,6 @@ class IncidentTests(unittest.TestCase):
     def test_exact_snap_pair_can_be_auto_approved_and_reported(self):
         now = time.time()
         old, new, change = self.snap_refresh(now)
-        self.app.cfg['auto_approve_snap_refresh'] = True
         with patch.object(inc, 'snap_history', return_value=[change]):
             self.sample(now)
         pair = next(record for record in self.app.s['incidents'].values() if 'snap' in record)

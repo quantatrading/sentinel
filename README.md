@@ -1,17 +1,17 @@
-# Sentinel 0.3.20
+# Sentinel 0.3.21
 
 A small, passive watchdog for Ubuntu 24.04 Gunbot VPS hosts. Python standard library only. Telegram is the UI; there is no listener, web server, database, packet capture, firewall change, trading action, or remote command facility.
 
 Start with [installation](#install-on-the-vps), then read the [configuration reference](docs/configuration.md) and [operations and troubleshooting guide](docs/operations.md). Developers should read [CONTRIBUTING.md](CONTRIBUTING.md). See [SECURITY.md](SECURITY.md) for privacy and reporting guidance, and [the publication review](docs/publication-review.md) for review scope and validation.
 
-Download `sentinel-0.3.20.tar.gz` and its `.sha256` file from
+Download `sentinel-0.3.21.tar.gz` and its `.sha256` file from
 [GitHub Releases](https://github.com/quantatrading/sentinel/releases/latest).
 Place both in the same directory on your Ubuntu server:
 
 ```bash
-sha256sum --check --strict sentinel-0.3.20.tar.gz.sha256
-tar -xzf sentinel-0.3.20.tar.gz
-cd sentinel-0.3.20
+sha256sum --check --strict sentinel-0.3.21.tar.gz.sha256
+tar -xzf sentinel-0.3.21.tar.gz
+cd sentinel-0.3.21
 sha256sum --check --strict SHA256SUMS
 sudo ./install.sh
 ```
@@ -118,7 +118,7 @@ Telegram users can approve or replace a baseline. An attacker with access to an
 authorised account or the service account can therefore change this reference.
 The root collector remains read-only with no incoming command channel.
 
-Verified Snap auto-refresh mount-link changes are reported together. Administrators can enable scoped automatic approval in the [configuration reference](docs/configuration.md#snap-auto-refresh-changes).
+Verified Snap auto-refresh mount-link changes are reported together. Auto-approval defaults to on and can be changed in Telegram with `/snapapproval on` or `/snapapproval off`. See the [verification and approval rules](docs/configuration.md#snap-auto-refresh-changes).
 
 Local-root approval is also available:
 
@@ -205,6 +205,7 @@ resolve a change. None of these states establishes that the server is secure.
 | `/security` | UFW saved configuration (live state unverified), SSH counts, unknown-domain/unattributed-IP counts, collector health and rate suppression |
 | `/processes` | Up to 25 processes with PID, runtime, sampled CPU, RSS and listening ports |
 | `/instances [count]` | Show or set the required Gunbot instance count (1–256); no restart required |
+| `/snapapproval [on\|off]` | Show or set automatic approval for verified Snap refreshes |
 | `/recent` | Recent observations with first/last/count and recent alert details, bounded to one message |
 | `/known` | Domain rules, bounded to one message |
 | `/allow api.example.com` | Add an exact domain to Sentinel only |
@@ -313,7 +314,7 @@ The uninstaller removes the installed software and its dedicated data. It cannot
 
 ## Release integrity and support
 
-This release identifies itself as 0.3.20 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
+This release identifies itself as 0.3.21 in `/status` and local health output. The installer verifies `SHA256SUMS` before installing source files. A checksum shipped beside a download detects damage but **does not authenticate that download**. You must obtain the source and expected manifest digest through a trusted channel.
 
 For releases, run `python3 release.py` after review and tests. Publish its resulting manifest digest through an independently trusted channel. An optional `SENTINEL_EXPECTED_MANIFEST_SHA256` pin makes the installer fail on a manifest mismatch. Verify that pin/manifest using trusted tooling **before executing the installer**; a modified installer cannot be trusted to verify itself. No signing identity or third-party certification is asserted by this package.
 

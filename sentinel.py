@@ -38,7 +38,7 @@ import sentinel_incidents as incidents
 LOG = logging.getLogger('sentinel')
 MAX_STATE = 4 * 1024 * 1024
 LIMIT = 2000
-VERSION = '0.3.20'
+VERSION = '0.3.21'
 MAX_PENDING = 200
 HELP = """SENTINEL COMMAND GUIDE
 Purpose: inspect host security, monitoring readiness and Gunbot activity.
@@ -63,6 +63,7 @@ ACTIVITY AND EVIDENCE
 /baseline - Security baseline status and detected changes.
 /baseline review [page] - Review current file/listener metadata.
 /baseline approve <digest> - Accept the inventory you reviewed within 5 minutes.
+/snapapproval [on|off] - Show or set auto-approval for verified Snap refreshes.
 
 DOMAIN RULES
 /known - Show approved domain rules. These are Sentinel rules, not firewall rules.
@@ -133,7 +134,7 @@ def validate(cfg):
             raise ValueError('Invalid ' + key)
         cfg[key] = sorted(set(str(ipaddress.ip_network(x, strict=False)) if key.endswith('ips')
                               else domain(x) for x in cfg[key]))
-    cfg.setdefault('auto_approve_snap_refresh', False)
+    cfg.setdefault('auto_approve_snap_refresh', True)
     if type(cfg['auto_approve_snap_refresh']) is not bool:
         raise ValueError('Invalid auto_approve_snap_refresh')
     cfg.setdefault('expected_gunbot_instances', 1)
@@ -1270,6 +1271,15 @@ class Sentinel:
             return baselines.command(self, args, actor, chat)
         if cmd == '/management':
             return self.management(args)
+        if cmd == '/snapapproval':
+            if not args:
+                state = 'ON' if self.cfg['auto_approve_snap_refresh'] else 'OFF'
+                return f'Snap refresh auto-approval is {state}.\nUse /snapapproval on or /snapapproval off to change it.'
+            if len(args) != 1 or args[0] not in ('on', 'off'):
+                return 'Invalid setting. Use /snapapproval, /snapapproval on, or /snapapproval off.'
+            self.cfg['auto_approve_snap_refresh'] = args[0] == 'on'
+            self.dirty = True
+            return f'Snap refresh auto-approval updated: {args[0].upper()}.\nApplies to newly verified Snap refreshes.'
         if cmd == '/instances':
             if not args:
                 return f"Required Gunbot instances: {self.cfg['expected_gunbot_instances']}\nUse /instances <count> (1-256) to change."
@@ -1533,9 +1543,12 @@ def audit_action(app, message, update_id):
     incident_change = cmd == '/sentinel' and len(text.split()) > 1 and text.split()[1] in ('acknowledge', 'approve')
     baseline_change = cmd == '/baseline' and len(text.split()) > 1 and text.split()[1] == 'approve'
     instances_change = cmd == '/instances' and len(text.split()) > 1
-    mutation = instances_change or incident_change or baseline_change or cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change
+    snap_approval_change = cmd == '/snapapproval' and len(text.split()) > 1
+    mutation = (instances_change or snap_approval_change or incident_change or baseline_change
+                or cmd in ('/allow', '/remove', '/mute', '/unmute', '/maintenance') or management_change)
     before = {'incidents': json.dumps(app.s['incidents'], sort_keys=True), 'approved_baseline': app.s['approved_baseline'], 'known_management_ips': list(app.cfg['known_management_ips']), 'known_domains': list(app.cfg['known_domains']),
               'expected_gunbot_instances': app.cfg['expected_gunbot_instances'],
+              'auto_approve_snap_refresh': app.cfg['auto_approve_snap_refresh'],
               'known_domain_suffixes': list(app.cfg['known_domain_suffixes']), 'mute_until': app.s['mute_until'], 'maintenance_until': app.s['maintenance_until']}
     try:
         response = app.command(text, actor=message['from']['id'], chat=message['chat']['id'])
@@ -1554,6 +1567,8 @@ def audit_action(app, message, update_id):
         target = None
         if instances_change and len(text.split()) == 2 and re.fullmatch(r'[0-9]{1,3}', text.split()[1]) and 1 <= int(text.split()[1]) <= 256:
             target = int(text.split()[1])
+        if snap_approval_change and len(text.split()) == 2 and text.split()[1] in ('on', 'off'):
+            target = text.split()[1] == 'on'
         if cmd in ('/allow', '/remove') and len(text.split()) == 2:
             try:
                 target = domain(text.split()[1], wildcard=True)
@@ -1569,6 +1584,7 @@ def audit_action(app, message, update_id):
             except ValueError:
                 pass
         changed = (before['expected_gunbot_instances'] != app.cfg['expected_gunbot_instances'] or before['incidents'] != json.dumps(app.s['incidents'], sort_keys=True) or before['approved_baseline'] != app.s['approved_baseline'] or before['known_management_ips'] != app.cfg['known_management_ips'] or before['known_domains'] != app.cfg['known_domains'] or
+                   before['auto_approve_snap_refresh'] != app.cfg['auto_approve_snap_refresh'] or
                    before['known_domain_suffixes'] != app.cfg['known_domain_suffixes'] or
                    before['mute_until'] != app.s['mute_until'] or before['maintenance_until'] != app.s['maintenance_until'])
         LOG.info('AUDIT %s', json.dumps({'at': time.time(), 'actor': message['from']['id'],
@@ -1576,7 +1592,9 @@ def audit_action(app, message, update_id):
                  'target': target, 'changed': changed, 'management_operation': text.split()[1] if management_change else None, 'incident_operation': text.split()[1] if incident_change else None, 'mute_before': before['mute_until'],
                  'mute_after': app.s['mute_until'], 'maintenance_before': before['maintenance_until'],
                  'maintenance_after': app.s['maintenance_until'], 'outcome': 'applied' if response.startswith(
-                     ('Required Gunbot instances updated', 'Change approved', 'Change acknowledged', 'Baseline approved', 'Sentinel domain rules updated', 'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
+                     ('Required Gunbot instances updated', 'Snap refresh auto-approval updated',
+                      'Change approved', 'Change acknowledged', 'Baseline approved', 'Sentinel domain rules updated',
+                      'Anomaly notifications', 'Maintenance updated', 'Management IPs updated')) else 'rejected'}))
     return response
 
 

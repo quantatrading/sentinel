@@ -275,6 +275,22 @@ class SentinelTests(unittest.TestCase):
                 self.assertEqual(self.cfg['expected_gunbot_instances'], 1)
         self.assertIn('/instances [count]', self.app.command('/help'))
 
+    def test_snap_approval_command_defaults_on_and_persists_audited_changes(self):
+        self.assertIn('auto-approval is ON', self.app.command('/snapapproval'))
+        self.assertFalse(s.validate({'auto_approve_snap_refresh': False})['auto_approve_snap_refresh'])
+        message = {'from': {'id': 123}, 'chat': {'id': 123}}
+        for offset, setting in enumerate(('off', 'on'), 1):
+            enabled = setting == 'on'
+            with self.assertLogs(s.LOG, level='INFO') as logs:
+                response = s.audit_action(self.app, dict(message, text=f'/snapapproval@mybot {setting}'), offset)
+            self.assertIn(f'updated: {setting.upper()}', response)
+            self.assertIs(s.load(self.path)['auto_approve_snap_refresh'], enabled)
+            self.assertIn(f'"target": {json.dumps(enabled)}', ' '.join(logs.output))
+            self.assertIn('"outcome": "applied"', ' '.join(logs.output))
+        self.assertTrue(self.app.command('/snapapproval yes').startswith('Invalid setting'))
+        self.assertTrue(self.cfg['auto_approve_snap_refresh'])
+        self.assertIn('/snapapproval [on|off]', self.app.command('/help'))
+
     def test_management_commands_normalize_and_persist_audited_changes(self):
         self.assertIn('None configured', self.app.command('/management'))
         message = {'text': '/management add 203.0.113.10', 'from': {'id': 123}, 'chat': {'id': 123}}

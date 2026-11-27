@@ -18,7 +18,7 @@
   "check_seconds": 30,
   "retention_days": 7,
   "expected_gunbot_instances": 1,
-  "auto_approve_snap_refresh": false,
+  "auto_approve_snap_refresh": true,
   "monitored_paths": [
     "/"
   ]
