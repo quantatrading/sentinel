@@ -52,9 +52,17 @@ def build(root, output, tag=None):
     expected = manifest(contents)
     if (root / 'SHA256SUMS').read_bytes() != expected:
         raise ValueError('Release manifest is stale; review changes and run python3 release.py')
+    notes = f'docs/releases/v{current}.md'
+    lines = contents.get(notes, b'').decode('utf-8').splitlines()
+    archive_name = f'sentinel-{current}.tar.gz'
+    download_url = f'https://github.com/quantatrading/sentinel/releases/download/v{current}/{archive_name}'
+    for url in (download_url, download_url + '.sha256'):
+        command = f'wget {url}'
+        if command not in lines:
+            raise ValueError(f'Add `{command}` to {notes}')
     contents['SHA256SUMS'] = expected
     output.mkdir(parents=True, exist_ok=True)
-    archive = output / f'sentinel-{current}.tar.gz'
+    archive = output / archive_name
     # Stable metadata and compression make identical sources produce identical archives.
     with archive.open('wb') as raw:
         with gzip.GzipFile(filename='', fileobj=raw, mode='wb', mtime=0) as compressed:

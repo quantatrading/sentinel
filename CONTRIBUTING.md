@@ -67,6 +67,9 @@ To publish a new version:
 
 1. Update the application version and user-facing version references.
 2. Add `docs/releases/vVERSION.md` with release notes and add that file to `FILES`.
+   In the upgrade instructions, put both versioned `wget` commands before
+   checksum verification. The build checks for direct GitHub release URLs for
+   `sentinel-VERSION.tar.gz` and `sentinel-VERSION.tar.gz.sha256`.
 3. Run tests, regenerate `SHA256SUMS`, commit and push the reviewed changes.
 4. Create and push the matching tag, for example:
 

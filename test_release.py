@@ -60,6 +60,20 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'symlinked'):
             release.build(self.root, self.output)
 
+    def test_rejects_missing_or_wrong_version_download_commands(self):
+        current = release.version(self.root)
+        notes = self.root / 'docs' / 'releases' / f'v{current}.md'
+        original = notes.read_text()
+        for suffix in ('', '.sha256'):
+            with self.subTest(suffix=suffix):
+                url = (f'https://github.com/quantatrading/sentinel/releases/download/v{current}/'
+                       f'sentinel-{current}.tar.gz{suffix}')
+                notes.write_text(original.replace(f'wget {url}\n', f'wget {url.replace(current, "999.0.0")}\n'))
+                (self.root / 'SHA256SUMS').write_bytes(release.manifest(release.release_files(self.root)))
+                with self.assertRaisesRegex(ValueError, 'Add `wget'):
+                    release.build(self.root, self.output, 'v' + current)
+                self.assertFalse(self.output.exists())
+
 
 if __name__ == '__main__':
     unittest.main()
