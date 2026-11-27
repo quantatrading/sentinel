@@ -38,7 +38,7 @@ import sentinel_incidents as incidents
 LOG = logging.getLogger('sentinel')
 MAX_STATE = 4 * 1024 * 1024
 LIMIT = 2000
-VERSION = '0.3.19'
+VERSION = '0.3.20'
 MAX_PENDING = 200
 HELP = """SENTINEL COMMAND GUIDE
 Purpose: inspect host security, monitoring readiness and Gunbot activity.
@@ -116,7 +116,8 @@ def known(name, cfg):
 def validate(cfg):
     allowed = {'server_name', 'gunbot_process', 'known_domains', 'known_domain_suffixes',
                'known_management_ips', 'thresholds', 'alert_cooldown_minutes',
-               'check_seconds', 'retention_days', 'runtime', 'expected_gunbot_instances', 'monitored_paths'}
+               'check_seconds', 'retention_days', 'runtime', 'expected_gunbot_instances', 'monitored_paths',
+               'auto_approve_snap_refresh'}
     if not isinstance(cfg, dict) or set(cfg) - allowed:
         raise ValueError('Unknown configuration fields')
     for key, default in [('server_name', socket.gethostname()), ('gunbot_process', 'gunthy-linux')]:
@@ -132,6 +133,9 @@ def validate(cfg):
             raise ValueError('Invalid ' + key)
         cfg[key] = sorted(set(str(ipaddress.ip_network(x, strict=False)) if key.endswith('ips')
                               else domain(x) for x in cfg[key]))
+    cfg.setdefault('auto_approve_snap_refresh', False)
+    if type(cfg['auto_approve_snap_refresh']) is not bool:
+        raise ValueError('Invalid auto_approve_snap_refresh')
     cfg.setdefault('expected_gunbot_instances', 1)
     if type(cfg['expected_gunbot_instances']) is not int or not 1 <= cfg['expected_gunbot_instances'] <= 256:
         raise ValueError('Invalid expected_gunbot_instances')
@@ -354,6 +358,8 @@ def report_profile(job):
             return 'INCIDENT', 'CRITICAL', 'Investigate affected processes and host resources. Sentinel has taken no corrective action.'
         if key.startswith(('dns:', 'ip:')):
             return 'CONTACT', 'WARNING', 'Verify the destination against expected activity. DNS correlation is limited; compromise is not established.'
+        if key.startswith('snap-approved:'):
+            return 'CHANGE', 'INFO', 'Sentinel approved both mount-link changes using verified Snap history.'
         if key.startswith('incident:'):
             return 'CHANGE', ('WARNING' if job.get('incident_state', 'detected') == 'detected' else 'NOTICE'), 'Review the change using its /sentinel investigate command; approve only if expected.'
         if key.startswith('drift:'):
@@ -553,6 +559,8 @@ class Telegram(threading.Thread):
             job.update(text=incidents.render(record), incident_state=record['state'])
         if job.get('key', '').startswith('incident:') and hasattr(self, 'incidents') and (not record or record['state'] in ('acknowledged', 'approved', 'resolved')):
             outcome = 'muted'
+        elif job['key'].startswith('snap-approved:') and now < self.mute_until:
+            outcome = 'deferred'
         elif job['anomaly'] and (now < self.mute_until or (now < self.maintenance_until and job['key'].startswith(('process:', 'gunbot:')))):
             outcome = 'muted'
         elif not job['anomaly'] and now - job['created'] > 300:
@@ -799,6 +807,11 @@ class Sentinel:
 
     def event(self, key, text, now=None, once=False):
         now = time.time() if now is None else now
+        pending = self.s['pending']
+        routine = [k for k, v in pending.items() if v['priority'] == 1]
+        if key.startswith('snap-approved:') and (not self.chats or now < self.s['mute_until']
+                                                 or (len(pending) >= MAX_PENDING and not routine)):
+            return
         e = self.s['events'].get(key)
         if e is None:
             if len(self.s['events']) >= LIMIT:
@@ -809,15 +822,13 @@ class Sentinel:
         self.dirty = True
         if key in self.s['pending'] or (e['settled'] and (once or now - e['settled'] < self.cfg['alert_cooldown_minutes'] * 60)):
             return
-        message = text if key.startswith('incident:') else f"{self.cfg['server_name']} - {text}\nFirst seen: {stamp(e['first'])}\nCount: {e['count']}"
+        message = text if key.startswith(('incident:', 'snap-approved:')) else f"{self.cfg['server_name']} - {text}\nFirst seen: {stamp(e['first'])}\nCount: {e['count']}"
         self.s['recent'] = (self.s['recent'] + [f'{stamp(now)} {message[:800]}'])[-100:]
         if now < self.s['mute_until'] or (now < self.s['maintenance_until'] and key.startswith(('process:', 'gunbot:'))):
             # Intentional mute is distinct from a failed delivery; do not replay muted events.
             e['settled'] = now
             return
         priority = 1 if key.startswith(('dns:', 'ip:')) else 0
-        pending = self.s['pending']
-        routine = [k for k, v in pending.items() if v['priority'] == 1]
         if len(pending) >= MAX_PENDING or (priority == 1 and len(routine) >= 100):
             if priority == 0 and routine:
                 del pending[routine[0]]
@@ -832,6 +843,8 @@ class Sentinel:
     def dispatch(self, now=None):
         now = time.time() if now is None else now
         for key, item in sorted(self.s['pending'].items(), key=lambda kv: (kv[1]['priority'], kv[1]['created'])):
+            if key.startswith('snap-approved:') and now < self.s['mute_until']:
+                continue
             rate = self.rate[item['priority']]
             while rate and now - rate[0] >= 60:
                 rate.popleft()
@@ -849,6 +862,8 @@ class Sentinel:
                     record = self.s['incidents'].get(key.split(':', 1)[1])
                     if record:
                         job.update(text=incidents.render(record), incident_state=record['state'])
+                elif key.startswith('snap-approved:'):
+                    job['reference'] = key.split(':', 1)[1]
                 if put(self.outgoing, job):
                     rate.append(now)
                     self.inflight.add(identity)

@@ -34,8 +34,9 @@ def valid_approval(value):
             and value['digest'] == checks.inventory_digest(value['inventory'])
             and (value['local_digest'] is None or isinstance(value['local_digest'], str)
                  and re.fullmatch(r'[a-f0-9]{64}', value['local_digest']) is not None)
-            and type(value['actor']) is int and value['actor'] > 0
-            and type(value['chat']) is int and value['chat'] != 0
+            and (value['actor'] is None and value['chat'] is None
+                 or type(value['actor']) is int and value['actor'] > 0
+                 and type(value['chat']) is int and value['chat'] != 0)
             and type(value['at']) in (int, float) and math.isfinite(value['at']) and value['at'] >= 0)
 
 
@@ -53,7 +54,7 @@ def apply(app, host):
             app.dirty = True
         else:
             host['baseline'] = checks.compare_inventory(current, approved)
-            host['baseline']['source'] = 'Telegram approval'
+            host['baseline']['source'] = 'Snap refresh policy' if approved['actor'] is None else 'Telegram approval'
     return host
 
 

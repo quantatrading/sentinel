@@ -1,4 +1,5 @@
 import copy
+import datetime as dt
 import json
 from pathlib import Path
 import queue
@@ -42,6 +43,117 @@ class IncidentTests(unittest.TestCase):
 
     def record(self):
         return next(iter(self.app.s['incidents'].values()))
+
+    def snap_refresh(self, now):
+        directory = '/etc/systemd/system/multi-user.target.wants/'
+        old = directory + 'snap-core24-1643.mount'
+        new = directory + 'snap-core24-2307.mount'
+        self.before['files'][old] = {'uid': 0, 'gid': 0, 'mode': 511,
+                                     'link_sha256': 'a00edcf6ae86bdf8a162b66c8510d3c9d3f3abdb28f3e07f76681f57ec25af4c'}
+        self.current['files'][new] = {'uid': 0, 'gid': 0, 'mode': 511,
+                                      'link_sha256': '37f3bf71026156f398c3c07df06148fd2aa19e33b2fb4c850acf68f43d53ea65'}
+        self.expected['digest'] = c.inventory_digest(self.before)
+
+        def stamp(offset):
+            return dt.datetime.fromtimestamp(now + offset, dt.timezone.utc).isoformat()
+
+        change = {'id': '151', 'kind': 'auto-refresh', 'status': 'Done', 'ready': True,
+                  'spawn-time': stamp(-25), 'ready-time': stamp(-1),
+                  'tasks': [{'kind': 'mount-snap', 'summary': 'Mount snap "core24" (2307)',
+                             'status': 'Done', 'ready-time': stamp(-15)},
+                            {'kind': 'discard-snap', 'summary': 'Remove snap "core24" (1643) from the system',
+                             'status': 'Done', 'ready-time': stamp(-2)}]}
+        return old, new, change
+
+    def test_verified_snap_pair_persists_and_accepts_both_with_one_command(self):
+        now = time.time()
+        old, new, change = self.snap_refresh(now)
+        with patch.object(inc, 'snap_history', return_value=[change]):
+            self.sample(now)
+        self.assertIsNone(self.app.s['approved_baseline'])
+        records = self.app.s['incidents']
+        pair = next(record for record in records.values() if 'snap' in record)
+        self.assertEqual(len(records), 2)  # One Snap alert and one unrelated listener alert.
+        self.assertEqual(len(self.app.s['pending']), 2)
+        self.assertTrue(inc.valid_state(json.loads(json.dumps(records))))
+        key = 'incident:' + pair['ref']
+        report = s.telegram_report('Example', dict(self.app.s['pending'][key], key=key, anomaly=True))
+        self.assertIn('LEGITIMATE SNAP AUTO-REFRESH · CHANGE 151', report)
+        self.assertIn('both symlink fingerprints matched the expected targets', report)
+        self.assertIn('Both changes are awaiting approval', report)
+        self.assertIn('/sentinel approve ' + pair['ref'], report)
+        with patch.object(inc, 'snap_history', return_value=[]) as history:
+            self.sample(now)
+        history.assert_not_called()
+        ref = pair['ref']
+        self.assertIn('CHANGE 151', self.command('/sentinel investigate ' + ref))
+        self.assertIn('Both Snap mount links were accepted', self.command('/sentinel approve ' + ref))
+        self.assertNotIn(old, self.app.s['approved_baseline']['inventory']['files'])
+        self.assertIn(new, self.app.s['approved_baseline']['inventory']['files'])
+        self.assertEqual([item['kind'] for item in self.app.host['baseline']['changes']], ['listeners'])
+
+    def test_exact_snap_pair_can_be_auto_approved_and_reported(self):
+        now = time.time()
+        old, new, change = self.snap_refresh(now)
+        self.app.cfg['auto_approve_snap_refresh'] = True
+        with patch.object(inc, 'snap_history', return_value=[change]):
+            self.sample(now)
+        pair = next(record for record in self.app.s['incidents'].values() if 'snap' in record)
+        self.assertEqual(pair['state'], 'approved')
+        self.assertIsNone(pair['actor'])
+        self.assertTrue(s.baselines.valid_approval(self.app.s['approved_baseline']))
+        self.assertNotIn(old, self.app.s['approved_baseline']['inventory']['files'])
+        self.assertIn(new, self.app.s['approved_baseline']['inventory']['files'])
+        self.assertEqual([item['kind'] for item in self.app.host['baseline']['changes']], ['listeners'])
+        self.assertNotIn('incident:' + pair['ref'], self.app.s['pending'])
+        key = 'snap-approved:' + pair['ref']
+        self.app.s['mute_until'] = now + 5
+        self.app.dispatch(now)
+        self.assertTrue(all(identity[0] != key for identity in self.app.inflight))
+        self.assertIn(key, self.app.s['pending'])
+        self.app.dispatch(now + 5)
+        jobs = [self.app.outgoing.get_nowait() for _ in range(self.app.outgoing.qsize())]
+        job, = [job for job in jobs if job['key'] == key]
+        report = s.telegram_report('Example', job)
+        self.assertIn('LEGITIMATE SNAP AUTO-REFRESH · CHANGE 151', report)
+        self.assertIn('Sentinel automatically accepted both changes into the security baseline. No action needed.', report)
+        self.assertIn('Ref: ' + pair['ref'], report)
+        self.assertNotIn('ACTION REQUIRED', report)
+        self.assertNotIn('/sentinel approve', report)
+
+    def test_snap_pair_stays_pending_review_if_confirmation_cannot_be_queued(self):
+        now = time.time()
+        _, _, change = self.snap_refresh(now)
+        self.app.cfg['auto_approve_snap_refresh'] = True
+        pending = self.app.s['pending']
+        pending.update({f'busy:{i}': {'priority': 0} for i in range(s.MAX_PENDING)})
+        with patch.object(inc, 'snap_history', return_value=[change]):
+            self.sample(now)
+        pair = next(record for record in self.app.s['incidents'].values() if 'snap' in record)
+        self.assertIsNone(self.app.s['approved_baseline'])
+        self.assertEqual(pair['state'], 'detected')
+        pending.clear()
+        self.sample(now)
+        self.assertIn('incident:' + pair['ref'], pending)
+        self.assertIsNone(self.app.s['approved_baseline'])
+
+    def test_snap_verification_fails_closed(self):
+        now = time.time()
+        _, new, change = self.snap_refresh(now)
+        self.app.cfg['auto_approve_snap_refresh'] = True
+        for history in ([], [change, dict(change, id='152')], [dict(change, status='Error')],
+                        [dict(change, tasks=change['tasks'][:1])],
+                        [dict(change, **{'ready-time': ''})]):
+            with self.subTest(history=history):
+                self.assertIsNone(inc.snap_match(history, 'core24', '1643', '2307', now))
+        self.assertIsNone(inc.snap_match([change], 'core24', '1643', '2307', now + 121))
+        self.current['files'][new]['link_sha256'] = '0' * 64
+        with patch.object(inc, 'snap_history', return_value=[change]) as history:
+            self.sample(now)
+        history.assert_not_called()
+        self.assertIsNone(self.app.s['approved_baseline'])
+        self.assertEqual(len(self.app.s['incidents']), 3)
+        self.assertTrue(all('snap' not in record for record in self.app.s['incidents'].values()))
 
     def test_3222_checks_are_one_alert_with_stable_reference_and_owner(self):
         start = time.time()

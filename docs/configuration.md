@@ -42,11 +42,12 @@ Unknown fields are rejected. Numeric ranges below include both endpoints.
 | `known_domain_suffixes` | `[]` | Up to 2,000 suffixes such as `example.com`, without `*.`; matches subdomains, not the bare domain |
 | `known_management_ips` | `[]` | Up to 2,000 IPv4/IPv6 addresses or CIDRs; normalised to networks; classifies SSH sources only |
 | `expected_gunbot_instances` | `1` | Integer 1–256; matching parent/child families count as one instance |
+| `auto_approve_snap_refresh` | `false` | Boolean. Accept verified pairs of Snap mount-link changes automatically |
 | `monitored_paths` | `["/"]` | 1–16 absolute paths, at most 256 characters each, no control characters or `..` components |
 | `alert_cooldown_minutes` | `60` | 1–10,080; repeat observation notice cooldown |
 | `check_seconds` | `30` | 10–3,600; main evaluation interval; collector sampling has its own cadence |
 | `retention_days` | `7` | 1–30; inactive observation retention, also subject to capacity limits |
-| `runtime` | Generated | Internal observations, queues, offsets, delivery state, change records and Telegram-approved baseline; do not hand-edit |
+| `runtime` | Generated | Internal observations, queues, offsets, delivery state, change records and approved baseline; do not hand-edit |
 
 The `thresholds` object accepts:
 
@@ -80,6 +81,28 @@ Only start after validation succeeds. Preserve service-account ownership and
 `sudoedit /etc/sentinel/sentinel.env`, preserve root ownership and 0600 mode,
 then start the service. `--check-config` validates JSON, not Telegram access.
 Confirm delivery with `/selftest` after either change.
+
+## Snap auto-refresh changes
+
+Sentinel checks local snapd history when a fresh baseline comparison detects
+both an added and a removed systemd mount symlink for the same snap. It groups
+the pair under one `/sentinel investigate REF` and one `/sentinel approve REF`
+when the root-owned symlink fingerprints match their expected targets and a
+single completed auto-refresh has successful mount and removal tasks for the
+exact revisions. Both tasks and the refresh must have completed within two
+minutes before the inventory sample. The Telegram alert identifies the changes
+as a legitimate Snap auto-refresh, explains what Sentinel verified, and states
+whether the pair needs approval.
+
+Set `"auto_approve_snap_refresh": true` in the JSON config and restart Sentinel
+using the steps above to enable automatic approval for newly verified pairs.
+Sentinel saves the baseline update for both links together with one queued
+Telegram notice confirming that both were accepted automatically. The pair
+stays available for manual review if Sentinel cannot queue the notice. A mute
+started after the notice was queued delays its dispatch. The retained record
+includes the snapd change ID, both paths, and the policy approval. Unmatched or
+ambiguous changes follow the normal review flow. Other drift, including changes
+to mount unit files themselves, remains subject to its own review.
 
 ## Local command line
 
