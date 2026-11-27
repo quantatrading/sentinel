@@ -9,6 +9,8 @@ Download `sentinel-0.3.21.tar.gz` and its `.sha256` file from
 Place both in the same directory on your Ubuntu server:
 
 ```bash
+wget https://github.com/quantatrading/sentinel/releases/download/v0.3.21/sentinel-0.3.21.tar.gz
+wget https://github.com/quantatrading/sentinel/releases/download/v0.3.21/sentinel-0.3.21.tar.gz.sha256
 sha256sum --check --strict sentinel-0.3.21.tar.gz.sha256
 tar -xzf sentinel-0.3.21.tar.gz
 cd sentinel-0.3.21
